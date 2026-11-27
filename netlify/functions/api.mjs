@@ -151,6 +151,7 @@ const handlers = {
     await wr("stu:" + u.id, stu);
     await addHist(u.id, "submit", `Submitted "${r.title}" to ${OFFICE_NAMES[r.office]}`);
     await notify("office:" + r.office, `${u.name} submitted "${r.title}" for review.`);
+    await notify(u.id, `Your "${r.title}" was submitted to ${OFFICE_NAMES[r.office]} and is waiting for review.`);
     return { ok: true };
   },
   async file(b, req) {

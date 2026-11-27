@@ -180,8 +180,8 @@ const UI = {
     const nav = u.role === 'admin'
       ? [['admin.html', '🛡️', 'Admin Console', 'admin']]
       : u.role === 'office'
-      ? [['office.html', '🏢', 'Office Dashboard', 'office']]
-      : [['dashboard.html', '🏠', 'Dashboard', 'dashboard'], ['requirements.html', '📄', 'Requirements', 'requirements'], ['tracking.html', '🧭', 'Clearance Tracking', 'tracking'], ['history.html', '🕘', 'Clearance History', 'history']];
+        ? [['office.html', '🏢', 'Office Dashboard', 'office'], ['notifications.html', '🔔', 'Notifications', 'notifications']]
+        : [['dashboard.html', '🏠', 'Dashboard', 'dashboard'], ['requirements.html', '📋', 'Requirements Checklist', 'requirements'], ['tracking.html', '🧭', 'Clearance Tracking', 'tracking'], ['submission.html', '📤', 'Document Submission', 'submission'], ['notifications.html', '🔔', 'Notifications', 'notifications'], ['confirmation.html', '🏅', 'Clearance Confirmation', 'confirmation'], ['history.html', '🕘', 'Clearance History', 'history']];
     const sub = u.role === 'admin' ? 'System Administrator' : u.role === 'office' ? officeOf(u.office).name : (u.course || '') + ' · ' + (u.year || '');
     const root = $('#shell');
     root.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div>
@@ -200,7 +200,7 @@ const UI = {
     const pop = $('#pop'), dot = $('#dot'); let notifs = [];
     const paint = () => {
       const un = notifs.filter(n => !n.read).length; dot.style.display = un ? 'grid' : 'none'; dot.textContent = un;
-      pop.innerHTML = '<h4>Notifications</h4>' + (notifs.length ? notifs.slice(0, 30).map(n => `<div class="n ${n.read ? '' : 'un'}">${esc(n.text)}<small>${fmtDate(n.time)}</small></div>`).join('') : '<div class="empty">🔕<br>No notifications yet</div>');
+      pop.innerHTML = '<h4>Notifications</h4>' + (notifs.length ? notifs.slice(0, 30).map(n => `<div class="n ${n.read ? '' : 'un'}">${esc(n.text)}<small>${fmtDate(n.time)}</small></div>`).join('') : '<div class="empty">🔕<br>No notifications yet</div>') + (u.role === 'admin' ? '' : '<a class="n" href="notifications.html" style="display:block;text-align:center;font-weight:600;color:var(--blue)">View all notifications →</a>');
     };
     const fetchN = async () => { try { const d = await API.call('notifs'); if (!pop.classList.contains('show')) { notifs = d.list; paint(); } } catch (e) { /* ignore */ } };
     paint(); fetchN(); setInterval(() => { if (!document.hidden) fetchN(); }, 20000);
