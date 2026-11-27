@@ -62,9 +62,9 @@ async function addHist(sid, type, text) {
   h.unshift({ id: crypto.randomUUID(), type, text, date: Date.now(), cycle: u ? cycleOf(u) : "" });
   await wr("hist:" + sid, h.slice(0, 300));
 }
-async function notify(key, text) {
+async function notify(key, text, imp = false) {
   const n = (await rd("notif:" + key)) || [];
-  n.unshift({ id: crypto.randomUUID(), text, time: Date.now(), read: false });
+  n.unshift({ id: crypto.randomUUID(), text, time: Date.now(), read: false, important: !!imp });
   await wr("notif:" + key, n.slice(0, 60));
 }
 const notifKey = u => (u.role === "office" ? "office:" + u.office : u.id);
@@ -118,7 +118,7 @@ const handlers = {
     await wr("user:" + user.id, user); await wr("email:" + email, { id: user.id }); await wr("idno:" + idNo.toLowerCase(), { id: user.id });
     if (role === "student") await wr("stu:" + user.id, { subs: {} });
     await notify(user.id, `Welcome to the Student Clearance System, ${name}! Your account is ready.`);
-    await notify("admin", `New ${role === "office" ? "office staff (" + OFFICE_NAMES[user.office] + ")" : "student"} registered: ${name} (${idNo}).`);
+    await notify("admin", `New ${role === "office" ? "office staff (" + OFFICE_NAMES[user.office] + ")" : "student"} registered: ${name} (${idNo}).`, role === "office");
     return { ok: true };
   },
   async login(b) {
@@ -156,9 +156,10 @@ const handlers = {
     await wr("file:" + u.id + ":" + r.id, { fileData: data });
     stu.subs[r.id] = { status: "pending", fileName, fileSize: Number(b.fileSize) || 0, submittedAt: Date.now(), remarks: "" };
     await wr("stu:" + u.id, stu);
-    await addHist(u.id, "submit", `Submitted "${r.title}" to ${OFFICE_NAMES[r.office]}`);
-    await notify("office:" + r.office, `${u.name} submitted "${r.title}" for review.`);
-    await notify(u.id, `Your "${r.title}" was submitted to ${OFFICE_NAMES[r.office]} and is waiting for review.`);
+    const again = !!cur;
+    await addHist(u.id, "submit", `${again ? "Resubmitted" : "Submitted"} "${r.title}" to ${OFFICE_NAMES[r.office]}`);
+    await notify("office:" + r.office, `${u.name} ${again ? "resubmitted" : "submitted"} "${r.title}" for review.`, true);
+    await notify(u.id, `Your "${r.title}" was ${again ? "resubmitted" : "submitted"} to ${OFFICE_NAMES[r.office]} and is waiting for review.`);
     return { ok: true };
   },
   async file(b, req) {
@@ -189,12 +190,14 @@ const handlers = {
     Object.assign(s, { status: b.decision, remarks, reviewedAt: Date.now(), reviewedBy: u.name }); await wr("stu:" + sid, stu);
     const word = b.decision === "approved" ? "approved" : "rejected";
     await addHist(sid, b.decision === "approved" ? "approve" : "reject", `${OFFICE_NAMES[r.office]} ${word} "${r.title}"${remarks ? " — " + remarks : ""}`);
-    await notify(sid, `${OFFICE_NAMES[r.office]} ${word} your "${r.title}".${remarks ? " Remarks: " + remarks : ""}`);
+    const su0 = await rd("user:" + sid);
+    await notify(sid, `${OFFICE_NAMES[r.office]} ${word} your "${r.title}".${remarks ? " Remarks: " + remarks : ""}`, b.decision === "rejected");
+    await notify("office:" + r.office, `You ${word} "${r.title}" of ${su0 ? su0.name : "a student"}.`);
     if (b.decision === "approved" && allApproved(stu.subs)) {
       const su = await rd("user:" + sid);
       await addHist(sid, "complete", `Clearance Completed for ${cycleOf(su)}`);
-      await notify(sid, "🎉 Clearance Completed! All offices approved your requirements.");
-      await notify("admin", `${su.name} (${su.idNo}) completed clearance for ${cycleOf(su)}.`);
+      await notify(sid, "🎉 Clearance Completed! All offices approved your requirements.", true);
+      await notify("admin", `${su.name} (${su.idNo}) completed clearance for ${cycleOf(su)}.`, true);
     }
     return { ok: true };
   },
@@ -233,6 +236,7 @@ const handlers = {
     const u = await rd("user:" + id); if (!u) fail("User not found.", 404);
     const temp = "Tmp" + crypto.randomBytes(4).toString("hex") + "A";
     u.pass = hashPw(temp); await wr("user:" + id, u);
+    await notify(id, "An administrator reset your password. Log in with the temporary password you were given.", true);
     return { password: temp };
   },
   async reset(b, req) {
@@ -241,6 +245,7 @@ const handlers = {
     await Promise.all(REQS.map(r => db().delete("file:" + u.id + ":" + r.id)));
     await wr("stu:" + u.id, { subs: {} }); u.cycleIdx = (u.cycleIdx || 0) + 1; await wr("user:" + u.id, u);
     await addHist(u.id, "reset", "Started a new clearance period");
+    await notify(u.id, `A new clearance period has started: ${cycleOf(u)}. You can submit your requirements again.`);
     return { ok: true };
   }
 };

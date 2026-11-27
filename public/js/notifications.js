@@ -22,7 +22,7 @@
       (n) =>
         f === "all" ||
         (f === "unread" && !n.read) ||
-        (f === "important" && /rejected|completed/i.test(n.text)),
+        (f === "important" && n.important),
     );
     let html = "",
       last = "",
@@ -34,10 +34,10 @@
         last = g;
       }
       const t = UI.ntype(n.text);
-      html += `<div class="nitem ${n.read ? "" : "un"}" data-id="${esc(n.id)}" style="animation-delay:${Math.min(i++, 12) * 45}ms"><div class="nb ${t.cls}">${t.ico}</div><div class="tx"><b style="font-weight:${n.read ? 500 : 700}">${esc(n.text)}</b><small title="${fmtDate(n.time)}">${UI.ago(n.time)} · ${fmtDate(n.time)}</small></div>${n.read ? "" : '<span class="dotun" title="Unread"></span>'}</div>`;
+      html += `<div class="nitem ${n.read ? "" : "un"}" data-id="${esc(n.id)}" style="animation-delay:${Math.min(i++, 12) * 45}ms"><div class="nb ${t.cls}">${t.ico}</div><div class="tx">${n.important ? '<span class="badge b-rejected" style="margin-bottom:6px">Important</span>' : ""}<b style="font-weight:${n.read ? 500 : 700}">${esc(n.text)}</b><small title="${fmtDate(n.time)}">${UI.ago(n.time)} · ${fmtDate(n.time)}</small></div>${n.read ? "" : '<span class="dotun" title="Unread"></span>'}</div>`;
     });
     view.innerHTML = `<div class="nhero"><span class="bigbell">🔔</span><div><h2>${un ? "You have " + un + " unread notification" + (un > 1 ? "s" : "") : "You are all caught up!"}</h2><p>${list.length} total · updates appear automatically</p></div>
-    <div class="acts"><button class="btn light sm" id="mark" ${un ? "" : "disabled"}>✔ Mark all as read</button><button class="btn light sm" id="clear" ${list.length ? "" : "disabled"}>🗑 Clear all</button></div></div>
+    <div class="acts">${window.Notification && Notification.permission === "default" ? '<button class="btn light sm" id="alerts">🔔 Enable alerts</button>' : ""}<button class="btn light sm" id="mark" ${un ? "" : "disabled"}>✔ Mark all as read</button><button class="btn light sm" id="clear" ${list.length ? "" : "disabled"}>🗑 Clear all</button></div></div>
     <div class="chips">${[
       ["all", "All (" + list.length + ")"],
       ["unread", "Unread (" + un + ")"],
@@ -49,6 +49,22 @@
       )
       .join("")}</div>
     ${html || '<div class="card empty-st"><div class="em">🔕</div>No notifications to show.</div>'}`;
+    const al = $("#alerts", view);
+    if (al)
+      al.onclick = async () => {
+        try {
+          const r = await Notification.requestPermission();
+          UI.toast(
+            r === "granted"
+              ? "Alerts enabled. You will be notified even when this tab is in the background."
+              : "Alerts were not allowed.",
+            r === "granted" ? "" : "err",
+          );
+        } catch (e) {
+          UI.toast("Alerts are not supported on this browser.", "err");
+        }
+        render();
+      };
     const m = $("#mark", view);
     if (m)
       m.onclick = async () => {
