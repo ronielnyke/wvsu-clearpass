@@ -87,6 +87,15 @@ async function ensureAdmin() {
   return u;
 }
 
+/* ---------- office access code (managed by the administrator) ---------- */
+const newCode = () => "WVSU-" + crypto.randomBytes(3).toString("hex").toUpperCase();
+async function getStaffCode() {
+  const c = await rd("config:staffcode");
+  if (c && c.v) return c.v;
+  const v = String(process.env.STAFF_CODE || "").trim() || newCode();
+  await wr("config:staffcode", { v }); return v;
+}
+
 /* ---------- handlers ---------- */
 const handlers = {
   async register(b) {
@@ -100,8 +109,8 @@ const handlers = {
     const user = { id: crypto.randomUUID(), name, idNo, email, role, pass: hashPw(pw), createdAt: Date.now() };
     if (role === "office") {
       if (!OFFICES.includes(b.office)) fail("Please choose your office.");
-      const code = process.env.STAFF_CODE || "WVSU-STAFF-2026";
-      if (String(b.code || "").trim() !== code) fail("Invalid office access code. Ask your administrator.", 403);
+      const code = await getStaffCode();
+      if (String(b.code || "").trim().toLowerCase() !== code.toLowerCase()) fail("Invalid office access code. Ask your administrator.", 403);
       user.office = b.office;
     } else { user.course = str(b.course, 80); user.year = str(b.year, 20); user.cycleIdx = 0; }
     if (await rd("email:" + email)) fail("This email is already registered.", 409);
@@ -193,7 +202,13 @@ const handlers = {
     const hb = await db().list({ prefix: "hist:" }); let activity = [];
     await Promise.all(hb.blobs.map(async x => { const sid = x.key.slice(5); const h = (await rd(x.key)) || []; h.slice(0, 40).forEach(e => activity.push({ ...e, student: names[sid] || "Unknown" })); }));
     activity.sort((a, c) => c.date - a.date);
-    return { students: students.sort((a, c) => a.name.localeCompare(c.name)), staff: staff.sort((a, c) => a.name.localeCompare(c.name)), activity: activity.slice(0, 150) };
+    return { staffCode: await getStaffCode(), students: students.sort((a, c) => a.name.localeCompare(c.name)), staff: staff.sort((a, c) => a.name.localeCompare(c.name)), activity: activity.slice(0, 150) };
+  },
+  async adminsetcode(b, req) {
+    await authUser(req, "admin");
+    const v = String(b.code || "").trim() || newCode();
+    if (v.length < 6 || v.length > 40 || /\s/.test(v)) fail("Access code must be 6–40 characters with no spaces.");
+    await wr("config:staffcode", { v }); return { code: v };
   },
   async admindelete(b, req) {
     await authUser(req, "admin"); const id = str(b.id, 80);

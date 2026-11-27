@@ -21,8 +21,7 @@ netlify deploy --prod
 ```
 
 ## Office staff access code
-Office staff must enter an access code when registering. Default: `WVSU-STAFF-2026`.
-CHANGE IT: Netlify > Site configuration > Environment variables > add `STAFF_CODE` = your secret code, then redeploy.
+Managed only by the administrator: log in as admin > Admin Console > "Access Code" tab. The code is generated automatically the first time; the admin can copy it, generate a new one, or set a custom one. Staff need it to register as office staff.
 
 ## Administrator account (permanent)
 Created automatically by the system, cannot be deleted or registered over.

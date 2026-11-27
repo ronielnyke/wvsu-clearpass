@@ -2,7 +2,7 @@
 (function () {
   const me = Auth.require('admin'); if (!me) return;
   const view = UI.shell(me, 'admin', 'Admin Console'); UI.loading(view);
-  let tab = 'overview', q = '', data = { students: [], staff: [], activity: [] }, live;
+  let tab = 'overview', q = '', data = { staffCode: '', students: [], staff: [], activity: [] }, live;
   const icon = { submit: '⬆️', approve: '✅', reject: '⚠️', complete: '🎓', reset: '🔄' };
   const pill = (k, t) => `<span class="badge b-${k}">${t}</span>`;
   const info = s => { const o = Data.overall(s.subs); return { ...o, key: o.completed ? 'approved' : (o.approved || o.pending || o.rejected) ? 'progress' : 'none' }; };
@@ -39,12 +39,21 @@
   function activity() {
     return `<div class="card"><h3>System Activity (latest ${data.activity.length})</h3>${data.activity.length ? data.activity.map(act).join('') : '<div class="empty-st"><div class="em">🕘</div>No activity yet.</div>'}</div>`;
   }
+  function codeTab() {
+    return `<div class="card"><h3>Office Staff Access Code</h3><p style="color:var(--muted);font-size:.9rem;margin-bottom:6px">Office staff must enter this code on the Register page. Share it only with authorized staff.</p>
+    <div class="tmp" id="codeShow">${esc(data.staffCode)}</div><div class="pill-row" style="justify-content:center;margin-bottom:22px"><button class="btn sm ghost" data-c="copy">📋 Copy</button><button class="btn sm" data-c="gen">🔄 Generate new code</button></div>
+    <div class="field"><label for="newCode">Set a custom code</label><div class="input"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="3"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><input id="newCode" type="text" maxlength="40" autocomplete="off" placeholder="6–40 characters, no spaces"></div></div>
+    <button class="btn" data-c="save">Save code</button><p style="color:var(--muted);font-size:.8rem;margin-top:12px">Changing the code does not affect staff who are already registered.</p></div>`;
+  }
+  async function saveCode(code) {
+    try { const d = await API.call('adminsetcode', { code }); data.staffCode = d.code; UI.toast('Access code updated.'); render(); } catch (e) { UI.toast(e.message, 'err'); }
+  }
   function render(d) {
     if (d) data = d;
-    const tabs = [['overview', '📊 Overview'], ['students', '🎓 Students'], ['staff', '🏢 Staff'], ['activity', '🕘 Activity']];
+    const tabs = [['overview', '📊 Overview'], ['students', '🎓 Students'], ['staff', '🏢 Staff'], ['activity', '🕘 Activity'], ['code', '🔑 Access Code']];
     view.innerHTML = `<div class="hello"><div><h2>🛡️ Administrator Console</h2><p>Monitor students, offices, submissions and system activity.</p></div></div>
     <div class="chips">${tabs.map(t => `<button data-t="${t[0]}" class="${tab === t[0] ? 'on' : ''}">${t[1]}</button>`).join('')}</div>
-    ${tab === 'overview' ? overview() : tab === 'students' ? students() : tab === 'staff' ? staff() : activity()}`;
+    ${tab === 'overview' ? overview() : tab === 'students' ? students() : tab === 'staff' ? staff() : tab === 'activity' ? activity() : codeTab()}`;
     const qi = $('#q', view);
     if (qi) qi.addEventListener('input', () => { q = qi.value; const pos = qi.selectionStart; render(); const n = $('#q', view); n.focus(); n.setSelectionRange(pos, pos); });
   }
@@ -63,6 +72,13 @@
   function userById(id) { return data.students.find(x => x.id === id) || data.staff.find(x => x.id === id); }
   view.addEventListener('click', e => {
     const t = e.target.closest('[data-t]'); if (t) { tab = t.dataset.t; q = ''; render(); return; }
+    const c = e.target.closest('[data-c]');
+    if (c) {
+      if (c.dataset.c === 'copy') { (navigator.clipboard ? navigator.clipboard.writeText(data.staffCode) : Promise.reject()).then(() => UI.toast('Code copied.'), () => UI.toast('Select the code and copy it manually.', 'err')); }
+      if (c.dataset.c === 'gen') confirmBox('Generate a new random access code? The old code will stop working for new registrations.', 'Generate', '', () => saveCode(''));
+      if (c.dataset.c === 'save') saveCode($('#newCode', view).value);
+      return;
+    }
     const b = e.target.closest('[data-a]'); if (!b) return; const u = userById(b.dataset.id); if (!u) return;
     if (b.dataset.a === 'view') viewStudent(u);
     if (b.dataset.a === 'del') confirmBox(`Delete <b>${esc(u.name)}</b> and all of their clearance data? This cannot be undone.`, 'Delete', 'danger', async () => { await API.call('admindelete', { id: u.id }); UI.toast('Account deleted.'); live.refresh(); });
