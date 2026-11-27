@@ -152,7 +152,7 @@ const Auth = {
     }
   },
   clear() {
-    ["wvsu_token", "wvsu_user"].forEach((k) => {
+    ["wvsu_token", "wvsu_user", "wvsu_seen"].forEach((k) => {
       localStorage.removeItem(k);
       sessionStorage.removeItem(k);
     });
@@ -311,6 +311,9 @@ const UI = {
       b.appendChild(s);
       setTimeout(() => s.remove(), 650);
     });
+    ["touchstart", "pointerdown", "click", "keydown"].forEach((ev) =>
+      document.addEventListener(ev, UI.unlock, { passive: true }),
+    );
     UI.observe();
     UI.tilt();
   },
@@ -451,6 +454,79 @@ const UI = {
     if (/registered/i.test(t)) return { ico: "👤", cls: "blue" };
     if (/welcome/i.test(t)) return { ico: "👋", cls: "gold" };
     return { ico: "🔔", cls: "blue" };
+  },
+  /* ---- notification sound (mobile only, like a chat app) ---- */
+  isMobile: () =>
+    /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i.test(
+      navigator.userAgent || "",
+    ) ||
+    ((navigator.maxTouchPoints || 0) > 1 &&
+      !!window.matchMedia &&
+      matchMedia("(pointer:coarse)").matches),
+  soundOn: () => UI.isMobile() && localStorage.getItem("wvsu_sound") !== "off",
+  unlock() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!UI._ctx) UI._ctx = new AC();
+      if (UI._ctx.state !== "running")
+        UI._ctx
+          .resume()
+          .then(() => {
+            if (UI._pending) {
+              UI._pending = false;
+              setTimeout(() => UI.ping(UI._pendingImp), 120);
+            }
+          })
+          .catch(() => {});
+    } catch (e) {
+      /* ignore */
+    }
+  },
+  ping(important) {
+    try {
+      const c = UI._ctx;
+      if (!c || c.state !== "running") return false;
+      const t0 = c.currentTime;
+      const tone = (f, at, dur) => {
+        const o = c.createOscillator(),
+          g = c.createGain();
+        o.type = "sine";
+        o.frequency.setValueAtTime(f, t0 + at);
+        o.frequency.exponentialRampToValueAtTime(f * 1.5, t0 + at + dur * 0.6);
+        g.gain.setValueAtTime(0.0001, t0 + at);
+        g.gain.exponentialRampToValueAtTime(0.6, t0 + at + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur);
+        o.connect(g);
+        g.connect(c.destination);
+        o.start(t0 + at);
+        o.stop(t0 + at + dur + 0.05);
+      };
+      tone(784, 0, 0.16);
+      tone(1175, 0.13, 0.24);
+      if (important) {
+        tone(784, 0.5, 0.16);
+        tone(1175, 0.63, 0.24);
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  },
+  alertSound(fresh) {
+    if (!UI.soundOn()) return;
+    const imp = fresh.some((n) => n.important);
+    try {
+      if (navigator.vibrate)
+        navigator.vibrate(imp ? [120, 60, 120, 60, 220] : [120, 60, 120]);
+    } catch (e) {
+      /* ignore */
+    }
+    if (!UI.ping(imp)) {
+      UI._pending = true;
+      UI._pendingImp = imp;
+      UI.unlock();
+    }
   },
   desktop(n) {
     try {
@@ -711,7 +787,7 @@ const UI = {
     <nav>${nav.map((n) => `<a href="${n[0]}" class="${n[3] === active ? "on" : ""}"><span>${n[1]}</span>${n[2]}</a>`).join("")}</nav>
     <div class="who"><b>${esc(u.name)}</b><br>${esc(sub)}</div><button class="btn light block sm" id="logout"><span>⎋</span> Log out</button></aside>
     <div class="main"><header class="top"><button class="menu" id="menu" aria-label="Menu">☰</button><h1>${esc(title)}</h1>
-    <div class="bellwrap"><button class="icon-btn" id="bell" aria-label="Notifications">🔔<span class="dot" id="dot" style="display:none">0</span></button><div class="pop" id="pop"></div></div>
+    <button class="icon-btn" id="snd" style="display:none" aria-label="Notification sound">🔊</button><div class="bellwrap"><button class="icon-btn" id="bell" aria-label="Notifications">🔔<span class="dot" id="dot" style="display:none">0</span></button><div class="pop" id="pop"></div></div>
     <div class="avatar" title="${esc(u.name)}">${esc(u.name.trim().charAt(0).toUpperCase())}</div></header>
     <main class="view" id="view"></main>${UI.footer()}</div>`;
     const side = $("#side"),
@@ -752,6 +828,14 @@ const UI = {
     const fetchN = async () => {
       try {
         const d = await API.call("notifs");
+        if (!seen) {
+          try {
+            const r = JSON.parse(sessionStorage.getItem("wvsu_seen") || "null");
+            if (Array.isArray(r)) seen = new Set(r);
+          } catch (e) {
+            /* ignore */
+          }
+        }
         if (seen) {
           const fresh = d.list.filter((n) => !seen.has(n.id) && !n.read);
           if (fresh.length) {
@@ -761,12 +845,21 @@ const UI = {
                 fresh[0].text,
             );
             UI.desktop(fresh[0]);
+            UI.alertSound(fresh);
             bell.classList.remove("ring");
             void bell.offsetWidth;
             bell.classList.add("ring");
           }
         }
         seen = new Set(d.list.map((n) => n.id));
+        try {
+          sessionStorage.setItem(
+            "wvsu_seen",
+            JSON.stringify([...seen].slice(0, 150)),
+          );
+        } catch (e) {
+          /* ignore */
+        }
         if (!pop.classList.contains("show")) {
           notifs = d.list;
           paint();
@@ -775,11 +868,35 @@ const UI = {
         /* ignore */
       }
     };
+    const snd = $("#snd");
+    if (UI.isMobile()) {
+      snd.style.display = "";
+      const sync = () => {
+        const on = UI.soundOn();
+        snd.textContent = on ? "🔊" : "🔇";
+        snd.title = on ? "Notification sound on" : "Notification sound off";
+      };
+      sync();
+      snd.onclick = () => {
+        const on = UI.soundOn();
+        localStorage.setItem("wvsu_sound", on ? "off" : "on");
+        sync();
+        UI.unlock();
+        if (on) UI.toast("Notification sound off.");
+        else {
+          UI.toast("Notification sound on 🔊");
+          setTimeout(() => UI.ping(false), 150);
+        }
+      };
+    }
     paint();
     fetchN();
     setInterval(() => {
       if (!document.hidden) fetchN();
-    }, 15000);
+    }, 8000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) fetchN();
+    });
     $("#bell").onclick = (e) => {
       e.stopPropagation();
       pop.classList.toggle("show");
