@@ -72,6 +72,10 @@
   const fail = (m) => {
     alertBox.textContent = m;
     alertBox.classList.add("show");
+    const bx = $(".auth-box");
+    bx.classList.remove("shake");
+    void bx.offsetWidth;
+    bx.classList.add("shake");
     alertBox.scrollIntoView({ behavior: "smooth", block: "center" });
   };
   $("#form").addEventListener("submit", (e) => {

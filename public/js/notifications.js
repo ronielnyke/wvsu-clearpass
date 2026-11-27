@@ -2,9 +2,11 @@
 (function () {
   const u = Auth.require();
   if (!u) return;
+  const isAdmin = u.role === "admin";
   const view = UI.shell(u, "notifications", "Notifications");
   UI.loading(view);
   let f = "all",
+    q = "",
     list = [],
     sent = [],
     live;
@@ -38,7 +40,10 @@
         : n.from
           ? `<div class="nfrom">✉️ ${esc(n.from.name)} · ${esc(UI.roleLabel(n.from))}</div>`
           : "";
-      html += `<div class="nitem ${!isSent && !n.read ? "un" : ""}" data-id="${esc(n.id)}" style="animation-delay:${Math.min(i++, 12) * 45}ms"><div class="nb ${t.cls}">${t.ico}</div><div class="tx">${n.important ? '<span class="badge b-rejected" style="margin-bottom:6px">Important</span>' : ""}${head}<b style="font-weight:${isSent || n.read ? 500 : 700}">${esc(n.text)}</b><small title="${fmtDate(n.time)}">${UI.ago(n.time)} · ${fmtDate(n.time)}</small>${!isSent && n.from ? `<div style="margin-top:8px"><button class="btn sm ghost" data-reply="${esc(n.id)}">↩ Reply</button></div>` : ""}</div>${!isSent && !n.read ? '<span class="dotun" title="Unread"></span>' : ""}</div>`;
+      const acts = isSent
+        ? ""
+        : `<div class="acts2">${n.from ? `<button class="nx" data-reply="${esc(n.id)}">↩ Reply</button>` : ""}${n.read ? "" : `<button class="nx" data-read="${esc(n.id)}">✓ Mark read</button>`}<button class="nx del" data-del="${esc(n.id)}">🗑 Delete</button></div>`;
+      html += `<div class="nitem ${!isSent && !n.read ? "un" : ""}" style="animation-delay:${Math.min(i++, 12) * 45}ms"><div class="nb ${t.cls}">${t.ico}</div><div class="tx">${n.important ? '<span class="badge b-rejected" style="margin-bottom:6px">Important</span>' : ""}${head}<b style="font-weight:${isSent || n.read ? 500 : 700}">${esc(n.text)}</b><small title="${fmtDate(n.time)}">${UI.ago(n.time)} · ${fmtDate(n.time)}</small>${acts}</div>${!isSent && !n.read ? '<span class="dotun" title="Unread"></span>' : ""}</div>`;
     });
     return html;
   }
@@ -48,8 +53,10 @@
       sent = d.sent;
     }
     const un = list.filter((n) => !n.read).length,
-      msgs = list.filter((n) => n.from).length;
-    const shown =
+      msgs = list.filter((n) => n.from).length,
+      imp = list.filter((n) => n.important).length;
+    const ql = q.toLowerCase();
+    const base =
       f === "sent"
         ? sent
         : list.filter(
@@ -59,14 +66,23 @@
               (f === "important" && n.important) ||
               (f === "messages" && n.from),
           );
+    const shown = base.filter(
+      (n) =>
+        !ql ||
+        (n.text + (n.from ? n.from.name : "") + (n.to || ""))
+          .toLowerCase()
+          .includes(ql),
+    );
     const html = items(shown, f === "sent");
-    view.innerHTML = `<div class="nhero"><span class="bigbell">🔔</span><div><h2>${un ? "You have " + un + " unread notification" + (un > 1 ? "s" : "") : "You are all caught up!"}</h2><p>${list.length} total · updates appear automatically</p></div>
-    <div class="acts"><button class="btn light sm" id="new">✉️ New message</button>${window.Notification && Notification.permission === "default" ? '<button class="btn light sm" id="alerts">🔔 Enable alerts</button>' : ""}<button class="btn light sm" id="mark" ${un ? "" : "disabled"}>✔ Mark all as read</button><button class="btn light sm" id="clear" ${list.length ? "" : "disabled"}>🗑 Clear all</button></div></div>
-    <div class="chips">${[
+    view.innerHTML = `<div class="nhero"><span class="bigbell">🔔</span><div><h2>${un ? "You have " + un + " unread notification" + (un > 1 ? "s" : "") : "You are all caught up!"}</h2><p>${list.length} total · updates appear automatically</p>
+    <div class="stats3"><span class="st3">🔵 ${un} unread</span><span class="st3">✉️ ${msgs} messages</span><span class="st3">❗ ${imp} important</span></div></div>
+    <div class="acts"><button class="btn light sm" id="new">✉️ New message</button>${window.Notification && Notification.permission === "default" ? '<button class="btn light sm" id="alerts">🔔 Enable alerts</button>' : ""}<button class="btn light sm" id="mark" ${un ? "" : "disabled"}>✔ Mark all as read</button><button class="btn ${isAdmin ? "clr" : "light"} sm" id="clear" ${list.length ? "" : "disabled"}>🧹 Clear all</button></div></div>
+    <div class="nsearch"><input class="search" id="nq" placeholder="🔍 Search notifications" value="${esc(q)}"></div>
+    <div class="chips" style="margin-top:12px">${[
       ["all", "All (" + list.length + ")"],
       ["unread", "Unread (" + un + ")"],
       ["messages", "Messages (" + msgs + ")"],
-      ["important", "Important"],
+      ["important", "Important (" + imp + ")"],
       ["sent", "Sent (" + sent.length + ")"],
     ]
       .map(
@@ -74,8 +90,17 @@
           `<button data-f="${c[0]}" class="${f === c[0] ? "on" : ""}">${c[1]}</button>`,
       )
       .join("")}</div>
-    ${html || '<div class="card empty-st"><div class="em">' + (f === "sent" ? "📤" : "🔕") + "</div>" + (f === "sent" ? "You have not sent any message yet." : "No notifications to show.") + "</div>"}`;
+    ${html || '<div class="card empty-st"><div class="em">' + (f === "sent" ? "📤" : "🔕") + "</div><b>" + (f === "sent" ? "Nothing sent yet" : q ? "No results" : "No notifications") + "</b><br>" + (f === "sent" ? "Messages you send will appear here." : "New updates will show up here automatically.") + "</div>"}`;
     $("#new", view).onclick = () => UI.compose();
+    const nq = $("#nq", view);
+    nq.addEventListener("input", () => {
+      q = nq.value;
+      const pos = nq.selectionStart;
+      render();
+      const n = $("#nq", view);
+      n.focus();
+      n.setSelectionRange(pos, pos);
+    });
     const al = $("#alerts", view);
     if (al)
       al.onclick = async () => {
@@ -105,19 +130,22 @@
     const c = $("#clear", view);
     if (c)
       c.onclick = () => {
+        if (isAdmin) {
+          c.disabled = true;
+          list = [];
+          render();
+          UI.clearNotifs(() => live.refresh());
+          return;
+        }
         const md = UI.modal(
-          '<h3>Clear all notifications?</h3><p style="margin-bottom:16px">This removes every notification from your list.</p><div class="mfoot"><button class="btn ghost sm" id="n">Cancel</button><button class="btn danger sm" id="y">Clear all</button></div>',
+          '<h3>Clear all notifications?</h3><p style="margin-bottom:16px">This removes every notification from your list. You can undo right after.</p><div class="mfoot"><button class="btn ghost sm" id="n">Cancel</button><button class="btn danger sm" id="y">Clear all</button></div>',
         );
         $("#n", md.el).onclick = md.close;
-        $("#y", md.el).onclick = async () => {
-          try {
-            await API.call("notifclear");
-            md.close();
-            await live.refresh();
-            UI.toast("Notifications cleared.");
-          } catch (e) {
-            UI.toast(e.message, "err");
-          }
+        $("#y", md.el).onclick = () => {
+          md.close();
+          list = [];
+          render();
+          UI.clearNotifs(() => live.refresh());
         };
       };
   }
@@ -134,16 +162,31 @@
       if (n && n.from) UI.compose({ to: target(n.from) });
       return;
     }
-    const it = e.target.closest(".nitem.un");
-    if (!it) return;
-    const n = list.find((x) => x.id === it.dataset.id);
-    if (!n) return;
-    n.read = true;
-    render();
-    try {
-      await API.call("notifread", { id: n.id });
-    } catch (err) {
-      /* ignore */
+    const rd = e.target.closest("[data-read]");
+    if (rd) {
+      const n = list.find((x) => x.id === rd.dataset.read);
+      if (n) {
+        n.read = true;
+        render();
+        try {
+          await API.call("notifread", { id: n.id });
+        } catch (err) {
+          /* ignore */
+        }
+      }
+      return;
+    }
+    const dl = e.target.closest("[data-del]");
+    if (dl) {
+      list = list.filter((x) => x.id !== dl.dataset.del);
+      render();
+      try {
+        await API.call("notifdelete", { id: dl.dataset.del });
+      } catch (err) {
+        UI.toast(err.message, "err");
+        live.refresh();
+      }
+      return;
     }
   });
   window.addEventListener("wvsu:sent", () => live.refresh());

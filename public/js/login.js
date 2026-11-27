@@ -12,6 +12,10 @@
   const fail = (m) => {
     alertBox.textContent = m;
     alertBox.classList.add("show");
+    const bx = $(".auth-box");
+    bx.classList.remove("shake");
+    void bx.offsetWidth;
+    bx.classList.add("shake");
   };
   $("#form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -22,6 +26,7 @@
     if (!ident.trim() || !pw)
       return fail("Please enter your email/ID and password.");
     btn.disabled = true;
+    btn.classList.add("loading");
     btn.textContent = "Signing in…";
     try {
       const u = await Auth.login(ident, pw, $("#remember").checked);
@@ -39,6 +44,7 @@
     } catch (err) {
       fail(err.message);
       btn.disabled = false;
+      btn.classList.remove("loading");
       btn.textContent = "Log in";
     }
   });

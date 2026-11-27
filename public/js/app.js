@@ -250,7 +250,7 @@ const UI = {
     '<footer class="footer"><div class="g6">Group 6</div><div class="line"></div><div>CIT 206 – Platform Technology · WVSU–Lambunao Campus</div><div>© ' +
     new Date().getFullYear() +
     " Student Clearance Tracking and Management System</div></footer>",
-  toast(msg, type) {
+  toast(msg, type, action) {
     let box = $(".toasts");
     if (!box) {
       box = document.createElement("div");
@@ -259,14 +259,82 @@ const UI = {
     }
     const t = document.createElement("div");
     t.className = "toast " + (type === "err" ? "err" : "");
-    t.textContent = msg;
-    box.appendChild(t);
-    setTimeout(() => {
+    const sp = document.createElement("span");
+    sp.textContent = msg;
+    t.appendChild(sp);
+    const kill = () => {
       t.style.transition = ".4s";
       t.style.opacity = "0";
       t.style.transform = "translateX(40px)";
       setTimeout(() => t.remove(), 400);
-    }, 3400);
+    };
+    if (action) {
+      const b = document.createElement("button");
+      b.className = "tbtn";
+      b.textContent = action.label;
+      b.onclick = () => {
+        kill();
+        action.fn();
+      };
+      t.appendChild(b);
+    }
+    box.appendChild(t);
+    setTimeout(kill, action ? 7000 : 3400);
+  },
+  sfx(kind) {
+    try {
+      const c = UI._ctx;
+      if (!c || c.state !== "running") return;
+      const seq =
+        kind === "bye"
+          ? [
+              [784, 0],
+              [659, 0.14],
+              [523, 0.28],
+            ]
+          : [
+              [523, 0],
+              [659, 0.12],
+              [784, 0.24],
+              [1047, 0.36],
+            ];
+      const t0 = c.currentTime + 0.02;
+      seq.forEach((n) => {
+        const o = c.createOscillator(),
+          g = c.createGain();
+        o.type = "triangle";
+        o.frequency.value = n[0];
+        g.gain.setValueAtTime(0.0001, t0 + n[1]);
+        g.gain.exponentialRampToValueAtTime(0.25, t0 + n[1] + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + n[1] + 0.4);
+        o.connect(g);
+        g.connect(c.destination);
+        o.start(t0 + n[1]);
+        o.stop(t0 + n[1] + 0.45);
+      });
+    } catch (e) {
+      /* ignore */
+    }
+  },
+  async clearNotifs(after) {
+    try {
+      await API.call("notifclear");
+      UI.toast("All notifications cleared.", "", {
+        label: "Undo",
+        fn: async () => {
+          try {
+            await API.call("notifrestore");
+            UI.toast("Notifications restored.");
+          } catch (e) {
+            UI.toast(e.message, "err");
+          }
+          if (after) after();
+        },
+      });
+    } catch (e) {
+      UI.toast(e.message, "err");
+    }
+    if (after) after();
   },
   modal(html, cls) {
     const bg = document.createElement("div");
@@ -548,11 +616,19 @@ const UI = {
     setTimeout(close, 9000);
   },
   welcome(u, un, go) {
+    const role =
+      u.role === "admin"
+        ? "Administrator"
+        : u.role === "office"
+          ? officeOf(u.office).name + " staff"
+          : "Student";
     const o = document.createElement("div");
     o.className = "bye hi";
-    o.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div><div class="bye-in"><div class="bye-logo"><i></i><img class="logo lg" src="assets/logo.jpg" alt="Logo"></div><h2>Welcome back, ${esc(String(u.name).split(" ")[0])}!</h2>
-    <div class="hi-bell">🔔</div><p><b>You have ${un.count} new notification${un.count > 1 ? "s" : ""}</b> while you were away</p>
-    <div class="hi-list">${un.items.map((n, i) => `<div class="hi-item" style="animation-delay:${0.25 + i * 0.15}s">${n.important ? "❗ " : n.from ? "✉️ " : "🔔 "}${n.from ? "<b>" + esc(n.from) + ":</b> " : ""}${esc(String(n.text).slice(0, 80))}</div>`).join("")}</div><div class="bar"><i></i></div></div>`;
+    o.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div><div class="bye-in"><div class="orbit" style="--s:130px"><i class="r1"></i><i class="r2"></i><i class="sp"></i><img class="logo" src="assets/logo.png" alt="Logo"></div>
+    <div class="okmark"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="23"/><path d="M15 27l8 8 15-17"/></svg></div>
+    <h2>Welcome back, ${esc(String(u.name).split(" ")[0])}!</h2><span class="rolechip">${esc(role)}</span>
+    ${un.count ? `<div class="hi-bell">🔔</div><p><b>You have ${un.count} new notification${un.count > 1 ? "s" : ""}</b> while you were away</p><div class="hi-list">${un.items.map((n, i) => `<div class="hi-item" style="animation-delay:${0.9 + i * 0.15}s">${n.important ? "❗ " : n.from ? "✉️ " : "🔔 "}${n.from ? "<b>" + esc(n.from) + ":</b> " : ""}${esc(String(n.text).slice(0, 80))}</div>`).join("")}</div>` : "<p>Preparing your dashboard…</p>"}
+    <div class="bar"><i></i></div></div>`;
     document.body.appendChild(o);
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
@@ -560,8 +636,12 @@ const UI = {
         $(".bar i", o).style.width = "100%";
       }),
     );
-    UI.alertSound(un.items.length ? un.items : [{}]);
-    setTimeout(go, 3300);
+    UI.sfx("hello");
+    setTimeout(UI.confetti, 350);
+    if (un.count)
+      setTimeout(() => UI.alertSound(un.items.length ? un.items : [{}]), 900);
+    setTimeout(() => o.classList.add("out"), un.count ? 3000 : 2000);
+    setTimeout(go, un.count ? 3400 : 2400);
   },
   desktop(n) {
     try {
@@ -574,7 +654,7 @@ const UI = {
           n.important ? "Important · Student Clearance" : "Student Clearance",
           {
             body: (n.from ? n.from.name + ": " : "") + n.text,
-            icon: "assets/logo.jpg",
+            icon: "assets/logo.png",
           },
         );
     } catch (e) {
@@ -731,7 +811,7 @@ const UI = {
       m.close();
       const o = document.createElement("div");
       o.className = "bye";
-      o.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div><div class="bye-in"><div class="bye-logo"><i></i><img class="logo lg" src="assets/logo.jpg" alt="Logo"></div><h2>Goodbye, ${esc(String(u.name).split(" ")[0])}!</h2><p>Logging you out securely…</p><div class="bar"><i></i></div></div>`;
+      o.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div><div class="bye-in"><div class="orbit" style="--s:130px"><i class="r1"></i><i class="r2"></i><i class="sp"></i><img class="logo" src="assets/logo.png" alt="Logo"></div><div class="wave">👋</div><h2>See you soon, ${esc(String(u.name).split(" ")[0])}!</h2><p>Logging you out securely…</p><div class="bar"><i></i></div></div>`;
       document.body.appendChild(o);
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
@@ -739,7 +819,9 @@ const UI = {
           $(".bar i", o).style.width = "100%";
         }),
       );
-      setTimeout(() => Auth.logout(), 1800);
+      UI.sfx("bye");
+      setTimeout(() => o.classList.add("out"), 1500);
+      setTimeout(() => Auth.logout(), 2000);
     };
   },
   loading(v) {
@@ -818,7 +900,7 @@ const UI = {
     const root = $("#shell");
     root.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div>
     <div class="overlay" id="overlay"></div>
-    <aside class="side" id="side"><div class="brand"><img class="logo" src="assets/logo.jpg" alt="WVSU Student Clearance logo"><div>Student Clearance<small>WVSU–Lambunao</small></div></div>
+    <aside class="side" id="side"><div class="brand"><img class="logo" src="assets/logo.png" alt="WVSU Student Clearance logo"><div>Student Clearance<small>WVSU–Lambunao</small></div></div>
     <nav>${nav.map((n) => `<a href="${n[0]}" class="${n[3] === active ? "on" : ""}"><span>${n[1]}</span>${n[2]}</a>`).join("")}</nav>
     <div class="who"><b>${esc(u.name)}</b><br>${esc(sub)}</div><button class="btn light block sm" id="logout"><span>⎋</span> Log out</button></aside>
     <div class="main"><header class="top"><button class="menu" id="menu" aria-label="Menu">☰</button><h1>${esc(title)}</h1>
@@ -846,8 +928,12 @@ const UI = {
       dot.textContent = un > 99 ? "99+" : un;
       document.title = (un ? "(" + un + ") " : "") + baseTitle;
       pop.innerHTML =
-        "<h4>Notifications" +
+        "<h4><span>Notifications" +
         (un ? ' <span class="badge b-progress">' + un + " new</span>" : "") +
+        "</span>" +
+        (u.role === "admin" && notifs.length
+          ? '<button class="btn sm danger" id="popclear">🧹 Clear all</button>'
+          : "") +
         "</h4>" +
         (notifs.length
           ? notifs
@@ -928,6 +1014,18 @@ const UI = {
     }, 8000);
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) fetchN();
+    });
+    pop.addEventListener("click", (e) => {
+      if (e.target.closest("#popclear")) {
+        e.stopPropagation();
+        notifs = [];
+        paint();
+        pop.classList.remove("show");
+        UI.clearNotifs(() => {
+          fetchN();
+          window.dispatchEvent(new Event("wvsu:sent"));
+        });
+      }
     });
     $("#bell").onclick = (e) => {
       e.stopPropagation();
