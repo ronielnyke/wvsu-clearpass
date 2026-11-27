@@ -70,9 +70,27 @@ async function notify(key, text) {
 const notifKey = u => (u.role === "office" ? "office:" + u.office : u.id);
 const allApproved = subs => REQS.every(r => subs[r.id] && subs[r.id].status === "approved");
 
+/* ---------- permanent administrator account ---------- */
+const adminEmail = () => String(process.env.ADMIN_EMAIL || "admin@wvsu.edu.ph").trim().toLowerCase();
+const adminPw = () => process.env.ADMIN_PASSWORD || "Admin@Group6";
+async function ensureAdmin() {
+  let u = await rd("user:admin");
+  if (!u) {
+    u = { id: "admin", name: "System Administrator", idNo: "ADMIN", email: adminEmail(), role: "admin", pass: hashPw(adminPw()), createdAt: Date.now() };
+    await wr("user:admin", u); await wr("email:" + u.email, { id: "admin" }); await wr("idno:admin", { id: "admin" });
+    return u;
+  }
+  let dirty = false;
+  if (process.env.ADMIN_PASSWORD && !checkPw(adminPw(), u.pass)) { u.pass = hashPw(adminPw()); dirty = true; }
+  if (u.email !== adminEmail()) { u.email = adminEmail(); await wr("email:" + u.email, { id: "admin" }); dirty = true; }
+  if (dirty) await wr("user:admin", u);
+  return u;
+}
+
 /* ---------- handlers ---------- */
 const handlers = {
   async register(b) {
+    await ensureAdmin();
     const role = b.role === "office" ? "office" : "student";
     const name = str(b.name, 80), idNo = str(b.idNo, 40), email = str(b.email, 120).toLowerCase(), pw = String(b.password || "");
     if (name.length < 3) fail("Please enter your full name.");
@@ -93,6 +111,7 @@ const handlers = {
     return { ok: true };
   },
   async login(b) {
+    await ensureAdmin();
     const ident = str(b.ident, 120).toLowerCase(); const pw = String(b.password || "");
     const ref = (await rd("email:" + ident)) || (await rd("idno:" + ident));
     const u = ref && (await rd("user:" + ref.id));
@@ -160,6 +179,37 @@ const handlers = {
       await notify(sid, "🎉 Clearance Completed! All offices approved your requirements.");
     }
     return { ok: true };
+  },
+  async admin(b, req) {
+    await authUser(req, "admin");
+    const { blobs } = await db().list({ prefix: "user:" });
+    const users = (await Promise.all(blobs.map(x => rd(x.key)))).filter(Boolean);
+    const students = [], staff = [];
+    await Promise.all(users.map(async u => {
+      if (u.role === "student") { const stu = (await rd("stu:" + u.id)) || { subs: {} }; students.push({ ...pub(u), createdAt: u.createdAt, subs: stu.subs }); }
+      else if (u.role === "office") staff.push({ ...pub(u), createdAt: u.createdAt });
+    }));
+    const names = Object.fromEntries(students.map(x => [x.id, x.name]));
+    const hb = await db().list({ prefix: "hist:" }); let activity = [];
+    await Promise.all(hb.blobs.map(async x => { const sid = x.key.slice(5); const h = (await rd(x.key)) || []; h.slice(0, 40).forEach(e => activity.push({ ...e, student: names[sid] || "Unknown" })); }));
+    activity.sort((a, c) => c.date - a.date);
+    return { students: students.sort((a, c) => a.name.localeCompare(c.name)), staff: staff.sort((a, c) => a.name.localeCompare(c.name)), activity: activity.slice(0, 150) };
+  },
+  async admindelete(b, req) {
+    await authUser(req, "admin"); const id = str(b.id, 80);
+    if (id === "admin") fail("The administrator account cannot be deleted.", 403);
+    const u = await rd("user:" + id); if (!u) fail("User not found.", 404);
+    const d = db();
+    await Promise.all([d.delete("user:" + id), d.delete("email:" + u.email), d.delete("idno:" + String(u.idNo).toLowerCase()), d.delete("stu:" + id), d.delete("hist:" + id), d.delete("notif:" + id), ...REQS.map(r => d.delete("file:" + id + ":" + r.id))]);
+    return { ok: true };
+  },
+  async adminreset(b, req) {
+    await authUser(req, "admin"); const id = str(b.id, 80);
+    if (id === "admin") fail("The administrator password is set in the Netlify environment variables.", 403);
+    const u = await rd("user:" + id); if (!u) fail("User not found.", 404);
+    const temp = "Tmp" + crypto.randomBytes(4).toString("hex") + "A";
+    u.pass = hashPw(temp); await wr("user:" + id, u);
+    return { password: temp };
   },
   async reset(b, req) {
     const u = await authUser(req, "student"); const stu = await rd("stu:" + u.id);

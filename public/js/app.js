@@ -55,7 +55,7 @@ const Auth = {
   },
   register: d => API.call('register', d),
   logout() { Auth.clear(); location.href = 'login.html'; },
-  home: u => u.role === 'office' ? 'office.html' : 'dashboard.html',
+  home: u => u.role === 'admin' ? 'admin.html' : u.role === 'office' ? 'office.html' : 'dashboard.html',
   require(role) {
     const u = Auth.current();
     if (!u) { location.replace('login.html'); return null; }
@@ -177,10 +177,12 @@ const UI = {
     return { refresh() { last = null; return run(); } };
   },
   shell(u, active, title) {
-    const nav = u.role === 'office'
+    const nav = u.role === 'admin'
+      ? [['admin.html', '🛡️', 'Admin Console', 'admin']]
+      : u.role === 'office'
       ? [['office.html', '🏢', 'Office Dashboard', 'office']]
       : [['dashboard.html', '🏠', 'Dashboard', 'dashboard'], ['requirements.html', '📄', 'Requirements', 'requirements'], ['tracking.html', '🧭', 'Clearance Tracking', 'tracking'], ['history.html', '🕘', 'Clearance History', 'history']];
-    const sub = u.role === 'office' ? officeOf(u.office).name : (u.course || '') + ' · ' + (u.year || '');
+    const sub = u.role === 'admin' ? 'System Administrator' : u.role === 'office' ? officeOf(u.office).name : (u.course || '') + ' · ' + (u.year || '');
     const root = $('#shell');
     root.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div>
     <div class="overlay" id="overlay"></div>
