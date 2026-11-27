@@ -117,6 +117,8 @@ const handlers = {
     if (await rd("idno:" + idNo.toLowerCase())) fail("This ID number is already registered.", 409);
     await wr("user:" + user.id, user); await wr("email:" + email, { id: user.id }); await wr("idno:" + idNo.toLowerCase(), { id: user.id });
     if (role === "student") await wr("stu:" + user.id, { subs: {} });
+    await notify(user.id, `Welcome to the Student Clearance System, ${name}! Your account is ready.`);
+    await notify("admin", `New ${role === "office" ? "office staff (" + OFFICE_NAMES[user.office] + ")" : "student"} registered: ${name} (${idNo}).`);
     return { ok: true };
   },
   async login(b) {
@@ -137,6 +139,11 @@ const handlers = {
     const u = await authUser(req); const k = "notif:" + notifKey(u); const n = (await rd(k)) || [];
     n.forEach(x => (x.read = true)); await wr(k, n); return { ok: true };
   },
+  async notifread(b, req) {
+    const u = await authUser(req); const k = "notif:" + notifKey(u); const id = str(b.id, 80);
+    const n = (await rd(k)) || []; const x = n.find(y => y.id === id); if (x) { x.read = true; await wr(k, n); } return { ok: true };
+  },
+  async notifclear(b, req) { const u = await authUser(req); await wr("notif:" + notifKey(u), []); return { ok: true }; },
   async submit(b, req) {
     const u = await authUser(req, "student"); const r = REQS.find(x => x.id === b.reqId);
     if (!r) fail("Unknown requirement.");
@@ -187,6 +194,7 @@ const handlers = {
       const su = await rd("user:" + sid);
       await addHist(sid, "complete", `Clearance Completed for ${cycleOf(su)}`);
       await notify(sid, "🎉 Clearance Completed! All offices approved your requirements.");
+      await notify("admin", `${su.name} (${su.idNo}) completed clearance for ${cycleOf(su)}.`);
     }
     return { ok: true };
   },

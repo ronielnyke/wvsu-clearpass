@@ -190,3 +190,27 @@ section{position:relative;z-index:1;padding:90px 5%}
 .certbig h1{font-size:clamp(1.6rem,4vw,2.6rem);font-weight:800;letter-spacing:1px}.certbig h2{color:var(--navy);margin:6px 0}.certbig table{margin:22px auto 0;max-width:640px;text-align:left}
 .lock{text-align:center;padding:36px 16px}.lock .em{font-size:3.4rem}
 @media print{body{background:#fff}.side,.top,.footer,.orbs,.overlay,.noprint,.toasts,#confetti{display:none!important}.main{margin-left:0}.view{padding:0;max-width:none}.certbig{box-shadow:none;animation:none}}
+
+@keyframes ring{0%,100%{transform:rotate(0)}15%{transform:rotate(18deg)}30%{transform:rotate(-16deg)}45%{transform:rotate(12deg)}60%{transform:rotate(-8deg)}75%{transform:rotate(4deg)}}
+@keyframes wave{0%,100%{transform:rotate(0)}25%{transform:rotate(22deg)}75%{transform:rotate(-14deg)}}
+@keyframes slideIn{from{opacity:0;transform:translateX(-26px)}to{opacity:1;transform:none}}
+.icon-btn.ring{animation:ring .9s ease}
+.pop .n{display:flex;gap:10px;align-items:flex-start}.pop .n.more{display:block;text-align:center;font-weight:600;color:var(--blue)}.pop h4{display:flex;justify-content:space-between;align-items:center}
+.nb{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;flex:none;font-size:1rem;background:#e4eeff}
+.nb.green{background:#e3f8ea}.nb.red{background:#fde8e9}.nb.gold{background:#fff3c4}.nb.blue{background:#e4eeff}
+.nhero{display:flex;align-items:center;gap:18px;flex-wrap:wrap;color:#fff;background:linear-gradient(135deg,#0a1f4d,#1b56c9 55%,#1fae4b);border-radius:26px;padding:24px 26px;margin-bottom:22px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.nhero::after{content:'';position:absolute;right:-50px;top:-50px;width:210px;height:210px;border-radius:50%;background:rgba(255,255,255,.1);animation:float 10s ease-in-out infinite}
+.nhero>*{position:relative;z-index:1}.nhero .bigbell{font-size:2.6rem;display:inline-block;animation:ring 2.8s ease infinite;transform-origin:top center}
+.nhero h2{font-size:1.4rem}.nhero p{opacity:.85;font-size:.9rem}.nhero .acts{margin-left:auto;display:flex;gap:10px;flex-wrap:wrap}
+.ngroup{font-size:.78rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin:22px 4px 10px}
+.nitem{position:relative;display:flex;gap:14px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px 18px;margin-bottom:10px;box-shadow:0 8px 24px -16px rgba(15,40,110,.4);cursor:pointer;transition:.3s;animation:slideIn .5s ease both;overflow:hidden}
+.nitem:hover{transform:translateX(6px);box-shadow:var(--shadow)}
+.nitem.un{background:linear-gradient(90deg,#f1f7ff,#fff)}.nitem.un::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--grad)}
+.nitem .nb{width:46px;height:46px;font-size:1.3rem;border-radius:15px}.nitem .tx{flex:1;min-width:0}.nitem .tx b{display:block;font-size:.92rem;line-height:1.45}.nitem .tx small{color:var(--muted)}
+.nitem .dotun{width:10px;height:10px;border-radius:50%;background:var(--sky);margin-top:6px;flex:none;animation:pulse 2s infinite}
+.bye{position:fixed;inset:0;z-index:400;display:grid;place-items:center;text-align:center;color:#fff;background:linear-gradient(145deg,#071845,#123a8a 55%,#0f7d3a);opacity:0;transition:opacity .5s}
+.bye.show{opacity:1}.bye .orbs{position:absolute}.bye .orbs span{opacity:.5}.bye-in{position:relative;z-index:1;transform:scale(.85);transition:transform .7s cubic-bezier(.2,1.3,.4,1)}.bye.show .bye-in{transform:none}
+.bye-logo{position:relative;width:150px;height:150px;margin:0 auto 18px;display:grid;place-items:center}.bye-logo i{position:absolute;inset:0;border-radius:50%;border:3px dashed rgba(255,255,255,.6);animation:spin 3s linear infinite}
+.bye-logo .logo{animation:bob 2s ease-in-out infinite}.bye h2{font-size:1.8rem}.bye p{opacity:.85}.bye .bar{width:min(260px,70vw);margin:20px auto 0;background:rgba(255,255,255,.2)}.bye .bar i{background:#fff;transition:width 1.6s ease}
+.wave{font-size:3rem;display:inline-block;animation:wave 1.4s ease infinite;transform-origin:70% 70%}
+#logout span{display:inline-block;transition:transform .3s}#logout:hover span{transform:translateX(6px) scale(1.15)}

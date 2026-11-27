@@ -165,6 +165,26 @@ const UI = {
       if (++frames < 260) requestAnimationFrame(draw); else cv.remove();
     })();
   },
+  ago(t) {
+    const s = Math.floor((Date.now() - t) / 1000); if (s < 45) return 'Just now'; const m = Math.floor(s / 60); if (m < 60) return m + ' min ago';
+    const h = Math.floor(m / 60); if (h < 24) return h + ' hr ago'; const d = Math.floor(h / 24); if (d === 1) return 'Yesterday'; if (d < 7) return d + ' days ago';
+    return new Date(t).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+  },
+  ntype(t) {
+    t = String(t || '');
+    if (/completed/i.test(t)) return { ico: '🎉', cls: 'gold' }; if (/approved/i.test(t)) return { ico: '✅', cls: 'green' }; if (/rejected/i.test(t)) return { ico: '⚠️', cls: 'red' };
+    if (/submitted/i.test(t)) return { ico: '📥', cls: 'blue' }; if (/registered/i.test(t)) return { ico: '👤', cls: 'blue' }; if (/welcome/i.test(t)) return { ico: '👋', cls: 'gold' }; return { ico: '🔔', cls: 'blue' };
+  },
+  logout(u) {
+    const m = UI.modal('<div style="text-align:center"><div class="wave">👋</div><h3>Log out?</h3><p style="color:var(--muted);margin-bottom:16px">You will need to log in again to continue.</p></div><div class="mfoot" style="justify-content:center"><button class="btn ghost sm" id="n">Stay</button><button class="btn danger sm" id="y">Log out</button></div>');
+    $('#n', m.el).onclick = m.close;
+    $('#y', m.el).onclick = () => {
+      m.close(); const o = document.createElement('div'); o.className = 'bye';
+      o.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div><div class="bye-in"><div class="bye-logo"><i></i><img class="logo lg" src="assets/logo.jpg" alt="Logo"></div><h2>Goodbye, ${esc(String(u.name).split(' ')[0])}!</h2><p>Logging you out securely…</p><div class="bar"><i></i></div></div>`;
+      document.body.appendChild(o); requestAnimationFrame(() => requestAnimationFrame(() => { o.classList.add('show'); $('.bar i', o).style.width = '100%'; }));
+      setTimeout(() => Auth.logout(), 1800);
+    };
+  },
   loading(v) { v.innerHTML = '<div class="empty-st"><div class="spinner"></div><p>Loading…</p></div>'; },
   live(fn, render, ms) {
     const view = UI._view; let last = null, first = true;
@@ -178,7 +198,7 @@ const UI = {
   },
   shell(u, active, title) {
     const nav = u.role === 'admin'
-      ? [['admin.html', '🛡️', 'Admin Console', 'admin']]
+      ? [['admin.html', '🛡️', 'Admin Console', 'admin'], ['notifications.html', '🔔', 'Notifications', 'notifications']]
       : u.role === 'office'
         ? [['office.html', '🏢', 'Office Dashboard', 'office'], ['notifications.html', '🔔', 'Notifications', 'notifications']]
         : [['dashboard.html', '🏠', 'Dashboard', 'dashboard'], ['requirements.html', '📋', 'Requirements Checklist', 'requirements'], ['tracking.html', '🧭', 'Clearance Tracking', 'tracking'], ['submission.html', '📤', 'Document Submission', 'submission'], ['notifications.html', '🔔', 'Notifications', 'notifications'], ['confirmation.html', '🏅', 'Clearance Confirmation', 'confirmation'], ['history.html', '🕘', 'Clearance History', 'history']];
@@ -188,7 +208,7 @@ const UI = {
     <div class="overlay" id="overlay"></div>
     <aside class="side" id="side"><div class="brand"><img class="logo" src="assets/logo.jpg" alt="WVSU Student Clearance logo"><div>Student Clearance<small>WVSU–Lambunao</small></div></div>
     <nav>${nav.map(n => `<a href="${n[0]}" class="${n[3] === active ? 'on' : ''}"><span>${n[1]}</span>${n[2]}</a>`).join('')}</nav>
-    <div class="who"><b>${esc(u.name)}</b><br>${esc(sub)}</div><button class="btn light block sm" id="logout">⎋ Log out</button></aside>
+    <div class="who"><b>${esc(u.name)}</b><br>${esc(sub)}</div><button class="btn light block sm" id="logout"><span>⎋</span> Log out</button></aside>
     <div class="main"><header class="top"><button class="menu" id="menu" aria-label="Menu">☰</button><h1>${esc(title)}</h1>
     <div class="bellwrap"><button class="icon-btn" id="bell" aria-label="Notifications">🔔<span class="dot" id="dot" style="display:none">0</span></button><div class="pop" id="pop"></div></div>
     <div class="avatar" title="${esc(u.name)}">${esc(u.name.trim().charAt(0).toUpperCase())}</div></header>
@@ -196,14 +216,22 @@ const UI = {
     const side = $('#side'), ov = $('#overlay');
     const toggle = o => { side.classList.toggle('open', o); ov.classList.toggle('show', o); };
     $('#menu').onclick = () => toggle(true); ov.onclick = () => toggle(false);
-    $('#logout').onclick = () => Auth.logout();
-    const pop = $('#pop'), dot = $('#dot'); let notifs = [];
+    $('#logout').onclick = () => UI.logout(u);
+    const pop = $('#pop'), dot = $('#dot'), bell = $('#bell'), baseTitle = document.title; let notifs = [], seen = null;
     const paint = () => {
-      const un = notifs.filter(n => !n.read).length; dot.style.display = un ? 'grid' : 'none'; dot.textContent = un;
-      pop.innerHTML = '<h4>Notifications</h4>' + (notifs.length ? notifs.slice(0, 30).map(n => `<div class="n ${n.read ? '' : 'un'}">${esc(n.text)}<small>${fmtDate(n.time)}</small></div>`).join('') : '<div class="empty">🔕<br>No notifications yet</div>') + (u.role === 'admin' ? '' : '<a class="n" href="notifications.html" style="display:block;text-align:center;font-weight:600;color:var(--blue)">View all notifications →</a>');
+      const un = notifs.filter(n => !n.read).length; dot.style.display = un ? 'grid' : 'none'; dot.textContent = un > 99 ? '99+' : un;
+      document.title = (un ? '(' + un + ') ' : '') + baseTitle;
+      pop.innerHTML = '<h4>Notifications' + (un ? ' <span class="badge b-progress">' + un + ' new</span>' : '') + '</h4>' + (notifs.length ? notifs.slice(0, 20).map(n => { const t = UI.ntype(n.text); return `<div class="n ${n.read ? '' : 'un'}"><span class="nb ${t.cls}">${t.ico}</span><div>${esc(n.text)}<small>${UI.ago(n.time)}</small></div></div>`; }).join('') : '<div class="empty">🔕<br>No notifications yet</div>') + '<a class="n more" href="notifications.html">View all notifications →</a>';
     };
-    const fetchN = async () => { try { const d = await API.call('notifs'); if (!pop.classList.contains('show')) { notifs = d.list; paint(); } } catch (e) { /* ignore */ } };
-    paint(); fetchN(); setInterval(() => { if (!document.hidden) fetchN(); }, 20000);
+    const fetchN = async () => {
+      try {
+        const d = await API.call('notifs');
+        if (seen) { const fresh = d.list.filter(n => !seen.has(n.id) && !n.read); if (fresh.length) { UI.toast('🔔 ' + fresh[0].text); bell.classList.remove('ring'); void bell.offsetWidth; bell.classList.add('ring'); } }
+        seen = new Set(d.list.map(n => n.id));
+        if (!pop.classList.contains('show')) { notifs = d.list; paint(); }
+      } catch (e) { /* ignore */ }
+    };
+    paint(); fetchN(); setInterval(() => { if (!document.hidden) fetchN(); }, 15000);
     $('#bell').onclick = e => {
       e.stopPropagation(); pop.classList.toggle('show');
       if (pop.classList.contains('show') && notifs.some(n => !n.read)) { dot.style.display = 'none'; API.call('markread').catch(() => { }); }
