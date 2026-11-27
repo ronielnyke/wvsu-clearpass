@@ -152,7 +152,7 @@ const Auth = {
     }
   },
   clear() {
-    ["wvsu_token", "wvsu_user", "wvsu_seen"].forEach((k) => {
+    ["wvsu_token", "wvsu_user", "wvsu_seen", "wvsu_reminded"].forEach((k) => {
       localStorage.removeItem(k);
       sessionStorage.removeItem(k);
     });
@@ -160,6 +160,7 @@ const Auth = {
   async login(ident, pw, remember) {
     const d = await API.call("login", { ident, password: pw });
     Auth.clear();
+    Auth.pending = d.unread || { count: 0, items: [] };
     const s = remember ? localStorage : sessionStorage;
     s.setItem("wvsu_token", d.token);
     s.setItem("wvsu_user", JSON.stringify(d.user));
@@ -455,15 +456,8 @@ const UI = {
     if (/welcome/i.test(t)) return { ico: "👋", cls: "gold" };
     return { ico: "🔔", cls: "blue" };
   },
-  /* ---- notification sound (mobile only, like a chat app) ---- */
-  isMobile: () =>
-    /Android|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i.test(
-      navigator.userAgent || "",
-    ) ||
-    ((navigator.maxTouchPoints || 0) > 1 &&
-      !!window.matchMedia &&
-      matchMedia("(pointer:coarse)").matches),
-  soundOn: () => UI.isMobile() && localStorage.getItem("wvsu_sound") !== "off",
+  /* ---- automatic notification sound (all devices) ---- */
+  soundOn: () => true,
   unlock() {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -487,34 +481,38 @@ const UI = {
     try {
       const c = UI._ctx;
       if (!c || c.state !== "running") return false;
-      const t0 = c.currentTime;
-      const tone = (f, at, dur) => {
-        const o = c.createOscillator(),
-          g = c.createGain();
-        o.type = "sine";
-        o.frequency.setValueAtTime(f, t0 + at);
-        o.frequency.exponentialRampToValueAtTime(f * 1.5, t0 + at + dur * 0.6);
-        g.gain.setValueAtTime(0.0001, t0 + at);
-        g.gain.exponentialRampToValueAtTime(0.6, t0 + at + 0.015);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur);
-        o.connect(g);
-        g.connect(c.destination);
-        o.start(t0 + at);
-        o.stop(t0 + at + dur + 0.05);
-      };
-      tone(784, 0, 0.16);
-      tone(1175, 0.13, 0.24);
-      if (important) {
-        tone(784, 0.5, 0.16);
-        tone(1175, 0.63, 0.24);
-      }
+      const t0 = c.currentTime + 0.02;
+      const bell = (f, at, vol) =>
+        [
+          [1, 1],
+          [2, 0.35],
+          [3, 0.12],
+        ].forEach((p) => {
+          const o = c.createOscillator(),
+            g = c.createGain();
+          o.type = "sine";
+          o.frequency.value = f * p[0];
+          g.gain.setValueAtTime(0.0001, t0 + at);
+          g.gain.exponentialRampToValueAtTime(vol * p[1], t0 + at + 0.012);
+          g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.45);
+          o.connect(g);
+          g.connect(c.destination);
+          o.start(t0 + at);
+          o.stop(t0 + at + 0.5);
+        });
+      const seq = [
+        [1047, 0],
+        [1319, 0.11],
+        [1568, 0.22],
+      ];
+      seq.forEach((n) => bell(n[0], n[1], 0.3));
+      if (important) seq.forEach((n) => bell(n[0], n[1] + 0.7, 0.3));
       return true;
     } catch (e) {
       return false;
     }
   },
   alertSound(fresh) {
-    if (!UI.soundOn()) return;
     const imp = fresh.some((n) => n.important);
     try {
       if (navigator.vibrate)
@@ -527,6 +525,43 @@ const UI = {
       UI._pendingImp = imp;
       UI.unlock();
     }
+  },
+  remind(items, count) {
+    const box = document.createElement("div");
+    box.className = "remind";
+    box.innerHTML = `<div class="rb">🔔</div><div class="rt"><b>You have ${count} new notification${count > 1 ? "s" : ""}</b>${items
+      .slice(0, 2)
+      .map(
+        (n) =>
+          `<small>${n.from ? "✉️ " + esc(n.from) + ": " : ""}${esc(String(n.text).slice(0, 90))}</small>`,
+      )
+      .join(
+        "",
+      )}</div><a class="btn sm light" href="notifications.html">View</a><button class="rx" aria-label="Close">×</button>`;
+    document.body.appendChild(box);
+    requestAnimationFrame(() => box.classList.add("show"));
+    const close = () => {
+      box.classList.remove("show");
+      setTimeout(() => box.remove(), 500);
+    };
+    $(".rx", box).onclick = close;
+    setTimeout(close, 9000);
+  },
+  welcome(u, un, go) {
+    const o = document.createElement("div");
+    o.className = "bye hi";
+    o.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div><div class="bye-in"><div class="bye-logo"><i></i><img class="logo lg" src="assets/logo.jpg" alt="Logo"></div><h2>Welcome back, ${esc(String(u.name).split(" ")[0])}!</h2>
+    <div class="hi-bell">🔔</div><p><b>You have ${un.count} new notification${un.count > 1 ? "s" : ""}</b> while you were away</p>
+    <div class="hi-list">${un.items.map((n, i) => `<div class="hi-item" style="animation-delay:${0.25 + i * 0.15}s">${n.important ? "❗ " : n.from ? "✉️ " : "🔔 "}${n.from ? "<b>" + esc(n.from) + ":</b> " : ""}${esc(String(n.text).slice(0, 80))}</div>`).join("")}</div><div class="bar"><i></i></div></div>`;
+    document.body.appendChild(o);
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        o.classList.add("show");
+        $(".bar i", o).style.width = "100%";
+      }),
+    );
+    UI.alertSound(un.items.length ? un.items : [{}]);
+    setTimeout(go, 3300);
   },
   desktop(n) {
     try {
@@ -787,7 +822,7 @@ const UI = {
     <nav>${nav.map((n) => `<a href="${n[0]}" class="${n[3] === active ? "on" : ""}"><span>${n[1]}</span>${n[2]}</a>`).join("")}</nav>
     <div class="who"><b>${esc(u.name)}</b><br>${esc(sub)}</div><button class="btn light block sm" id="logout"><span>⎋</span> Log out</button></aside>
     <div class="main"><header class="top"><button class="menu" id="menu" aria-label="Menu">☰</button><h1>${esc(title)}</h1>
-    <button class="icon-btn" id="snd" style="display:none" aria-label="Notification sound">🔊</button><div class="bellwrap"><button class="icon-btn" id="bell" aria-label="Notifications">🔔<span class="dot" id="dot" style="display:none">0</span></button><div class="pop" id="pop"></div></div>
+    <div class="bellwrap"><button class="icon-btn" id="bell" aria-label="Notifications">🔔<span class="dot" id="dot" style="display:none">0</span></button><div class="pop" id="pop"></div></div>
     <div class="avatar" title="${esc(u.name)}">${esc(u.name.trim().charAt(0).toUpperCase())}</div></header>
     <main class="view" id="view"></main>${UI.footer()}</div>`;
     const side = $("#side"),
@@ -836,6 +871,7 @@ const UI = {
             /* ignore */
           }
         }
+        const firstLoad = !seen;
         if (seen) {
           const fresh = d.list.filter((n) => !seen.has(n.id) && !n.read);
           if (fresh.length) {
@@ -852,6 +888,23 @@ const UI = {
           }
         }
         seen = new Set(d.list.map((n) => n.id));
+        if (firstLoad && !sessionStorage.getItem("wvsu_reminded")) {
+          const un = d.list.filter((n) => !n.read);
+          if (un.length) {
+            sessionStorage.setItem("wvsu_reminded", "1");
+            UI.remind(
+              un
+                .slice(0, 3)
+                .map((n) => ({
+                  text: n.text,
+                  from: n.from ? n.from.name : null,
+                })),
+              un.length,
+            );
+            UI.alertSound(un);
+            bell.classList.add("ring");
+          }
+        }
         try {
           sessionStorage.setItem(
             "wvsu_seen",
@@ -868,27 +921,6 @@ const UI = {
         /* ignore */
       }
     };
-    const snd = $("#snd");
-    if (UI.isMobile()) {
-      snd.style.display = "";
-      const sync = () => {
-        const on = UI.soundOn();
-        snd.textContent = on ? "🔊" : "🔇";
-        snd.title = on ? "Notification sound on" : "Notification sound off";
-      };
-      sync();
-      snd.onclick = () => {
-        const on = UI.soundOn();
-        localStorage.setItem("wvsu_sound", on ? "off" : "on");
-        sync();
-        UI.unlock();
-        if (on) UI.toast("Notification sound off.");
-        else {
-          UI.toast("Notification sound on 🔊");
-          setTimeout(() => UI.ping(false), 150);
-        }
-      };
-    }
     paint();
     fetchN();
     setInterval(() => {
@@ -915,7 +947,13 @@ const UI = {
       }
     });
     UI.effects();
+    UI.unlock();
     UI._view = $("#view");
     return UI._view;
   },
 };
+
+if ("serviceWorker" in navigator)
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  });

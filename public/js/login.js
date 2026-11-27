@@ -16,6 +16,7 @@
   $("#form").addEventListener("submit", async (e) => {
     e.preventDefault();
     alertBox.classList.remove("show");
+    UI.unlock();
     const ident = $("#ident").value,
       pw = $("#pw").value;
     if (!ident.trim() || !pw)
@@ -24,10 +25,17 @@
     btn.textContent = "Signing in…";
     try {
       const u = await Auth.login(ident, pw, $("#remember").checked);
-      UI.toast("Welcome, " + u.name + "!");
-      setTimeout(() => {
-        location.href = Auth.home(u);
-      }, 600);
+      const un = Auth.pending || { count: 0, items: [] },
+        go = () => {
+          location.href = Auth.home(u);
+        };
+      if (un.count > 0) {
+        sessionStorage.setItem("wvsu_reminded", "1");
+        UI.welcome(u, un, go);
+      } else {
+        UI.toast("Welcome, " + u.name + "!");
+        setTimeout(go, 600);
+      }
     } catch (err) {
       fail(err.message);
       btn.disabled = false;
