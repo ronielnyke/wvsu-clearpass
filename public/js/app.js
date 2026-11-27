@@ -438,8 +438,9 @@ const UI = {
       year: "numeric",
     });
   },
-  ntype(t) {
+  ntype(t, n) {
     t = String(t || "");
+    if (n && n.from) return { ico: "✉️", cls: "blue" };
     if (/password/i.test(t)) return { ico: "🔑", cls: "gold" };
     if (/new clearance period/i.test(t)) return { ico: "🔄", cls: "blue" };
     if (/resubmitted/i.test(t)) return { ico: "🔁", cls: "blue" };
@@ -460,11 +461,150 @@ const UI = {
       )
         new Notification(
           n.important ? "Important · Student Clearance" : "Student Clearance",
-          { body: n.text, icon: "assets/logo.jpg" },
+          {
+            body: (n.from ? n.from.name + ": " : "") + n.text,
+            icon: "assets/logo.jpg",
+          },
         );
     } catch (e) {
       /* ignore */
     }
+  },
+  roleLabel(f) {
+    return f.role === "student"
+      ? "Student"
+      : f.role === "admin"
+        ? "Administrator"
+        : officeOf(f.office).name + " staff";
+  },
+  async compose(preset) {
+    const u = Auth.current();
+    if (!u) return;
+    preset = preset || {};
+    let dir;
+    try {
+      dir = await API.call("directory");
+    } catch (e) {
+      UI.toast(e.message, "err");
+      return;
+    }
+    const fixed = [];
+    if (u.role !== "admin")
+      fixed.push(["Administrator", [["admin", "🛡️ System Administrator"]]]);
+    fixed.push([
+      "Offices",
+      OFFICES.filter((o) => !(u.role === "office" && o.id === u.office)).map(
+        (o) => ["office:" + o.id, o.icon + " " + o.name],
+      ),
+    ]);
+    if (u.role === "admin")
+      fixed.push([
+        "Groups",
+        [
+          ["group:students", "🎓 All students"],
+          ["group:staff", "🏢 All office staff"],
+          ["group:everyone", "📣 Everyone"],
+        ],
+      ]);
+    const opts = (q) =>
+      fixed
+        .map(
+          (g) =>
+            `<optgroup label="${g[0]}">${g[1].map((o) => `<option value="${o[0]}">${esc(o[1])}</option>`).join("")}</optgroup>`,
+        )
+        .join("") +
+      '<optgroup label="Students">' +
+      dir.students
+        .filter((s) =>
+          (s.name + s.course).toLowerCase().includes(q.toLowerCase()),
+        )
+        .slice(0, 150)
+        .map(
+          (s) =>
+            `<option value="user:${esc(s.id)}">🎓 ${esc(s.name)}${s.course ? " · " + esc(s.course) : ""}</option>`,
+        )
+        .join("") +
+      "</optgroup>";
+    const tpl =
+      u.role === "student"
+        ? [
+            "Please review my submission.",
+            "I need help with my requirement.",
+            "Please update my clearance status.",
+            "What documents are still missing?",
+          ]
+        : u.role === "office"
+          ? [
+              "Please resubmit a clearer copy.",
+              "Your requirement needs correction.",
+              "Please visit our office for verification.",
+              "Your requirement is approved. Thank you!",
+            ]
+          : [
+              "Reminder: please complete your clearance requirements.",
+              "Please check your pending requirements.",
+              "System maintenance tonight.",
+              "Please respond to your office requests.",
+            ];
+    const m = UI.modal(`<h3>✉️ New message</h3>
+    <div class="field"><label for="ts">To</label><div class="input"><input id="ts" type="text" placeholder="Search students…" style="padding-left:14px;margin-bottom:8px"></div><div class="input"><select id="to" style="padding-left:14px"></select></div></div>
+    <div class="chips tpl">${tpl.map((t) => `<button type="button" data-t="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+    <div class="field"><label for="msg">Message</label><textarea id="msg" maxlength="300" placeholder="Write your message or request…"></textarea><div class="hint" id="cnt">0 / 300</div></div>
+    <label class="check" style="margin-bottom:16px"><input type="checkbox" id="imp"> ❗ Mark as important</label>
+    <div class="mfoot"><button class="btn ghost sm" id="cx">Cancel</button><button class="btn sm" id="sd">Send ✉️</button></div>`);
+    const sel = $("#to", m.el),
+      ts = $("#ts", m.el),
+      msg = $("#msg", m.el);
+    const fill = (keep) => {
+      sel.innerHTML = opts(ts.value);
+      if (keep && [...sel.options].some((o) => o.value === keep))
+        sel.value = keep;
+    };
+    fill(preset.to);
+    ts.addEventListener("input", () => fill(sel.value));
+    if (preset.text) msg.value = preset.text;
+    $("#cnt", m.el).textContent = msg.value.length + " / 300";
+    msg.addEventListener("input", () => {
+      $("#cnt", m.el).textContent = msg.value.length + " / 300";
+    });
+    $$(".tpl button", m.el).forEach((b) =>
+      b.addEventListener("click", () => {
+        msg.value = b.dataset.t;
+        msg.dispatchEvent(new Event("input"));
+        msg.focus();
+      }),
+    );
+    $("#cx", m.el).onclick = m.close;
+    $("#sd", m.el).onclick = async () => {
+      const text = msg.value.trim();
+      if (text.length < 2) {
+        UI.toast("Please write a message.", "err");
+        msg.focus();
+        return;
+      }
+      const btn = $("#sd", m.el);
+      btn.disabled = true;
+      btn.textContent = "Sending…";
+      try {
+        const r = await API.call("send", {
+          to: sel.value,
+          text,
+          important: $("#imp", m.el).checked,
+        });
+        m.close();
+        UI.toast(
+          "Message sent" +
+            (r.count > 1 ? " to " + r.count + " recipients" : "") +
+            " ✔",
+        );
+        window.dispatchEvent(new Event("wvsu:sent"));
+      } catch (e) {
+        UI.toast(e.message, "err");
+        btn.disabled = false;
+        btn.textContent = "Send ✉️";
+      }
+    };
+    setTimeout(() => msg.focus(), 80);
   },
   logout(u) {
     const m = UI.modal(
@@ -602,8 +742,8 @@ const UI = {
           ? notifs
               .slice(0, 20)
               .map((n) => {
-                const t = UI.ntype(n.text);
-                return `<div class="n ${n.read ? "" : "un"}"><span class="nb ${t.cls}">${t.ico}</span><div>${n.important ? '<span class="badge b-rejected" style="margin-bottom:4px">Important</span><br>' : ""}${esc(n.text)}<small>${UI.ago(n.time)}</small></div></div>`;
+                const t = UI.ntype(n.text, n);
+                return `<div class="n ${n.read ? "" : "un"}"><span class="nb ${t.cls}">${t.ico}</span><div>${n.from ? "<b>" + esc(n.from.name) + "</b><br>" : ""}${n.important ? '<span class="badge b-rejected" style="margin-bottom:4px">Important</span><br>' : ""}${esc(n.text)}<small>${UI.ago(n.time)}</small></div></div>`;
               })
               .join("")
           : '<div class="empty">🔕<br>No notifications yet</div>') +
@@ -615,7 +755,11 @@ const UI = {
         if (seen) {
           const fresh = d.list.filter((n) => !seen.has(n.id) && !n.read);
           if (fresh.length) {
-            UI.toast((fresh[0].important ? "❗ " : "🔔 ") + fresh[0].text);
+            UI.toast(
+              (fresh[0].important ? "❗ " : fresh[0].from ? "✉️ " : "🔔 ") +
+                (fresh[0].from ? fresh[0].from.name + ": " : "") +
+                fresh[0].text,
+            );
             UI.desktop(fresh[0]);
             bell.classList.remove("ring");
             void bell.offsetWidth;

@@ -62,9 +62,9 @@ async function addHist(sid, type, text) {
   h.unshift({ id: crypto.randomUUID(), type, text, date: Date.now(), cycle: u ? cycleOf(u) : "" });
   await wr("hist:" + sid, h.slice(0, 300));
 }
-async function notify(key, text, imp = false) {
+async function notify(key, text, imp = false, extra = null) {
   const n = (await rd("notif:" + key)) || [];
-  n.unshift({ id: crypto.randomUUID(), text, time: Date.now(), read: false, important: !!imp });
+  n.unshift({ id: crypto.randomUUID(), text, time: Date.now(), read: false, important: !!imp, ...(extra || {}) });
   await wr("notif:" + key, n.slice(0, 60));
 }
 const notifKey = u => (u.role === "office" ? "office:" + u.office : u.id);
@@ -144,6 +144,35 @@ const handlers = {
     const n = (await rd(k)) || []; const x = n.find(y => y.id === id); if (x) { x.read = true; await wr(k, n); } return { ok: true };
   },
   async notifclear(b, req) { const u = await authUser(req); await wr("notif:" + notifKey(u), []); return { ok: true }; },
+  async directory(b, req) {
+    const me = await authUser(req);
+    const { blobs } = await db().list({ prefix: "user:" });
+    const us = (await Promise.all(blobs.map(x => rd(x.key)))).filter(Boolean);
+    return { students: us.filter(t => t.role === "student" && t.id !== me.id).map(t => ({ id: t.id, name: t.name, course: t.course || "", year: t.year || "" })).sort((a, c) => a.name.localeCompare(c.name)) };
+  },
+  async notifsent(b, req) { const u = await authUser(req); return { list: (await rd("sent:" + u.id)) || [] }; },
+  async send(b, req) {
+    const u = await authUser(req); const text = str(b.text, 300); if (text.length < 2) fail("Please write a message.");
+    const to = str(b.to, 80), me = notifKey(u), keys = new Set(); let label = "";
+    if (to === "admin") { keys.add("admin"); label = "System Administrator"; }
+    else if (to.startsWith("office:")) { const id = to.slice(7); if (!OFFICES.includes(id)) fail("Unknown office."); keys.add(to); label = OFFICE_NAMES[id]; }
+    else if (to.startsWith("user:")) { const t = await rd("user:" + to.slice(5)); if (!t) fail("Recipient not found.", 404); keys.add(notifKey(t)); label = t.name; }
+    else if (to.startsWith("group:")) {
+      if (u.role !== "admin") fail("Only the administrator can send to groups.", 403);
+      const g = to.slice(6); if (!["students", "staff", "everyone"].includes(g)) fail("Unknown group.");
+      const { blobs } = await db().list({ prefix: "user:" }); const us = (await Promise.all(blobs.map(x => rd(x.key)))).filter(Boolean);
+      us.forEach(t => { if ((g === "students" || g === "everyone") && t.role === "student") keys.add(t.id); if ((g === "staff" || g === "everyone") && t.role === "office") keys.add("office:" + t.office); });
+      label = g === "students" ? "All students" : g === "staff" ? "All office staff" : "Everyone";
+    } else fail("Please choose a recipient.");
+    keys.delete(me); if (!keys.size) fail("There is nobody to send this message to.");
+    const sent = (await rd("sent:" + u.id)) || [];
+    if (sent.filter(x => Date.now() - x.time < 600000).length >= 15) fail("You are sending too many messages. Please wait a few minutes.", 429);
+    const from = { id: u.id, name: u.name, role: u.role, office: u.office || null };
+    await Promise.all([...keys].map(k => notify(k, text, !!b.important, { from })));
+    sent.unshift({ id: crypto.randomUUID(), to: label, count: keys.size, text, time: Date.now(), important: !!b.important });
+    await wr("sent:" + u.id, sent.slice(0, 50));
+    return { ok: true, count: keys.size };
+  },
   async submit(b, req) {
     const u = await authUser(req, "student"); const r = REQS.find(x => x.id === b.reqId);
     if (!r) fail("Unknown requirement.");
@@ -227,7 +256,7 @@ const handlers = {
     if (id === "admin") fail("The administrator account cannot be deleted.", 403);
     const u = await rd("user:" + id); if (!u) fail("User not found.", 404);
     const d = db();
-    await Promise.all([d.delete("user:" + id), d.delete("email:" + u.email), d.delete("idno:" + String(u.idNo).toLowerCase()), d.delete("stu:" + id), d.delete("hist:" + id), d.delete("notif:" + id), ...REQS.map(r => d.delete("file:" + id + ":" + r.id))]);
+    await Promise.all([d.delete("user:" + id), d.delete("email:" + u.email), d.delete("idno:" + String(u.idNo).toLowerCase()), d.delete("stu:" + id), d.delete("hist:" + id), d.delete("notif:" + id), d.delete("sent:" + id), ...REQS.map(r => d.delete("file:" + id + ":" + r.id))]);
     return { ok: true };
   },
   async adminreset(b, req) {

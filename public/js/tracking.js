@@ -4,6 +4,10 @@
   if (!u0) return;
   const view = UI.shell(u0, "tracking", "Clearance Tracking");
   UI.loading(view);
+  view.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-m]");
+    if (b) UI.compose({ to: b.dataset.m });
+  });
   UI.live(
     () => API.call("state"),
     (s) => {
@@ -19,7 +23,7 @@
           return `<div><span>${esc(r.title)}${x && x.remarks ? '<br><small style="color:var(--muted)">💬 ' + esc(x.remarks) + "</small>" : ""}${x && x.reviewedAt ? '<br><small style="color:var(--muted)">' + fmtDate(x.reviewedAt) + "</small>" : ""}</span>${badge(Data.st(subs, r.id))}</div>`;
         })
         .join("");
-      return `<div class="it ${st}"><div class="card reveal"><div class="head"><b style="font-size:1.05rem">${of.icon} ${esc(of.name)}</b>${badge(st)}</div><div class="sub">${items}</div></div></div>`;
+      return `<div class="it ${st}"><div class="card reveal"><div class="head"><b style="font-size:1.05rem">${of.icon} ${esc(of.name)}</b><span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${badge(st)}<button class="btn sm ghost" data-m="office:${of.id}">💬 Message</button></span></div><div class="sub">${items}</div></div></div>`;
     }).join("")}</div>`;
       UI.observe(view);
       setTimeout(() => {
