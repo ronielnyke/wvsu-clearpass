@@ -281,23 +281,41 @@ const UI = {
     box.appendChild(t);
     setTimeout(kill, action ? 7000 : 3400);
   },
+  sparks() {
+    return (
+      '<div class="sparks">' +
+      Array.from(
+        { length: 18 },
+        () =>
+          `<i style="left:${Math.round(Math.random() * 100)}%;animation-delay:${(Math.random() * 2.5).toFixed(2)}s;animation-duration:${(2.6 + Math.random() * 2.6).toFixed(2)}s;font-size:${8 + Math.round(Math.random() * 10)}px"></i>`,
+      ).join("") +
+      "</div>"
+    );
+  },
   sfx(kind) {
     try {
       const c = UI._ctx;
       if (!c || c.state !== "running") return;
       const seq =
-        kind === "bye"
+        kind === "clear"
           ? [
-              [784, 0],
-              [659, 0.14],
-              [523, 0.28],
+              [1175, 0],
+              [880, 0.08],
+              [660, 0.16],
+              [440, 0.24],
             ]
-          : [
-              [523, 0],
-              [659, 0.12],
-              [784, 0.24],
-              [1047, 0.36],
-            ];
+          : kind === "bye"
+            ? [
+                [784, 0],
+                [659, 0.14],
+                [523, 0.28],
+              ]
+            : [
+                [523, 0],
+                [659, 0.12],
+                [784, 0.24],
+                [1047, 0.36],
+              ];
       const t0 = c.currentTime + 0.02;
       seq.forEach((n) => {
         const o = c.createOscillator(),
@@ -316,21 +334,45 @@ const UI = {
       /* ignore */
     }
   },
-  async clearNotifs(after) {
+  async clearNotifs(after, all) {
     try {
-      await API.call("notifclear");
-      UI.toast("All notifications cleared.", "", {
-        label: "Undo",
-        fn: async () => {
-          try {
-            await API.call("notifrestore");
-            UI.toast("Notifications restored.");
-          } catch (e) {
-            UI.toast(e.message, "err");
-          }
-          if (after) after();
-        },
-      });
+      const d = await API.call(all ? "adminnotifclear" : "notifclear");
+      const none = all && !d.items && !d.sent;
+      UI.sfx("clear");
+      UI.toast(
+        all
+          ? none
+            ? "There was nothing to clear."
+            : "Cleared " +
+              d.items +
+              " notification" +
+              (d.items > 1 ? "s" : "") +
+              " from " +
+              d.accounts +
+              " account" +
+              (d.accounts > 1 ? "s" : "") +
+              (d.sent
+                ? " and " + d.sent + " sent message" + (d.sent > 1 ? "s" : "")
+                : "") +
+              "."
+          : "All notifications cleared.",
+        "",
+        none
+          ? null
+          : {
+              label: "Undo",
+              fn: async () => {
+                try {
+                  await API.call(all ? "adminnotifrestore" : "notifrestore");
+                  UI.sfx("hello");
+                  UI.toast("Notifications restored.");
+                } catch (e) {
+                  UI.toast(e.message, "err");
+                }
+                if (after) after();
+              },
+            },
+      );
     } catch (e) {
       UI.toast(e.message, "err");
     }
@@ -624,7 +666,7 @@ const UI = {
           : "Student";
     const o = document.createElement("div");
     o.className = "bye hi";
-    o.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div><div class="bye-in"><div class="orbit" style="--s:130px"><i class="r1"></i><i class="r2"></i><i class="sp"></i><img class="logo" src="assets/logo.png" alt="Logo"></div>
+    o.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div>${UI.sparks()}<div class="bye-in"><div class="orbit" style="--s:150px"><i class="r1"></i><i class="r2"></i><i class="sp"></i><i class="wv"></i><i class="wv b"></i><i class="wv c"></i><img class="logo" src="assets/logo.png" alt="Logo"></div>
     <div class="okmark"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="23"/><path d="M15 27l8 8 15-17"/></svg></div>
     <h2>Welcome back, ${esc(String(u.name).split(" ")[0])}!</h2><span class="rolechip">${esc(role)}</span>
     ${un.count ? `<div class="hi-bell">🔔</div><p><b>You have ${un.count} new notification${un.count > 1 ? "s" : ""}</b> while you were away</p><div class="hi-list">${un.items.map((n, i) => `<div class="hi-item" style="animation-delay:${0.9 + i * 0.15}s">${n.important ? "❗ " : n.from ? "✉️ " : "🔔 "}${n.from ? "<b>" + esc(n.from) + ":</b> " : ""}${esc(String(n.text).slice(0, 80))}</div>`).join("")}</div>` : "<p>Preparing your dashboard…</p>"}
@@ -811,7 +853,7 @@ const UI = {
       m.close();
       const o = document.createElement("div");
       o.className = "bye";
-      o.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div><div class="bye-in"><div class="orbit" style="--s:130px"><i class="r1"></i><i class="r2"></i><i class="sp"></i><img class="logo" src="assets/logo.png" alt="Logo"></div><div class="wave">👋</div><h2>See you soon, ${esc(String(u.name).split(" ")[0])}!</h2><p>Logging you out securely…</p><div class="bar"><i></i></div></div>`;
+      o.innerHTML = `<div class="orbs"><span></span><span></span><span></span></div>${UI.sparks()}<div class="bye-in"><div class="orbit" style="--s:150px"><i class="r1"></i><i class="r2"></i><i class="sp"></i><i class="wv"></i><i class="wv b"></i><i class="wv c"></i><img class="logo" src="assets/logo.png" alt="Logo"></div><div class="wave">👋</div><h2>See you soon, ${esc(String(u.name).split(" ")[0])}!</h2><p>Logging you out securely…</p><div class="bar"><i></i></div></div>`;
       document.body.appendChild(o);
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
@@ -820,8 +862,8 @@ const UI = {
         }),
       );
       UI.sfx("bye");
-      setTimeout(() => o.classList.add("out"), 1500);
-      setTimeout(() => Auth.logout(), 2000);
+      setTimeout(() => o.classList.add("out"), 1900);
+      setTimeout(() => Auth.logout(), 2400);
     };
   },
   loading(v) {
@@ -932,7 +974,7 @@ const UI = {
         (un ? ' <span class="badge b-progress">' + un + " new</span>" : "") +
         "</span>" +
         (u.role === "admin" && notifs.length
-          ? '<button class="btn sm danger" id="popclear">🧹 Clear all</button>'
+          ? '<button class="btn sm danger" id="popclear" title="Clears notifications of every account">🧹 Clear all</button>'
           : "") +
         "</h4>" +
         (notifs.length
@@ -1024,7 +1066,7 @@ const UI = {
         UI.clearNotifs(() => {
           fetchN();
           window.dispatchEvent(new Event("wvsu:sent"));
-        });
+        }, true);
       }
     });
     $("#bell").onclick = (e) => {

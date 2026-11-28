@@ -153,9 +153,41 @@ const handlers = {
     if (!bak) fail("Nothing to restore.", 404);
     await wr("notif:" + notifKey(u), bak); await db().delete("notifbak:" + notifKey(u)); return { ok: true };
   },
+  async adminnotifclear(b, req) {
+    await authUser(req, "admin"); const bak = {}; let accounts = 0, items = 0, sentItems = 0;
+    const clearPrefix = async (prefix, isSent) => {
+      const { blobs } = await db().list({ prefix });
+      await Promise.all(blobs.map(async x => { const l = (await rd(x.key)) || []; if (!l.length) return; bak[x.key] = l; if (isSent) sentItems += l.length; else { accounts++; items += l.length; } await wr(x.key, []); }));
+    };
+    await clearPrefix("notif:", false); await clearPrefix("sent:", true);
+    if (Object.keys(bak).length) await wr("notifbak:all", bak);
+    return { accounts, items, sent: sentItems };
+  },
+  async adminnotifrestore(b, req) {
+    await authUser(req, "admin"); const bak = await rd("notifbak:all"); if (!bak) fail("Nothing to restore.", 404);
+    await Promise.all(Object.keys(bak).map(async k => {
+      const cur = (await rd(k)) || []; const ids = new Set(cur.map(x => x.id));
+      await wr(k, [...cur, ...bak[k].filter(x => !ids.has(x.id))].sort((a, c) => c.time - a.time).slice(0, k.startsWith("sent:") ? 50 : 60));
+    }));
+    await db().delete("notifbak:all"); return { ok: true };
+  },
   async notifdelete(b, req) {
-    const u = await authUser(req); const k = "notif:" + notifKey(u); const id = str(b.id, 80);
-    await wr(k, ((await rd(k)) || []).filter(x => x.id !== id)); return { ok: true };
+    const u = await authUser(req); const kind = b.kind === "sent" ? "sent" : "notif";
+    const k = kind === "sent" ? "sent:" + u.id : "notif:" + notifKey(u);
+    const ids = new Set([].concat(b.ids || b.id || []).map(x => String(x)));
+    if (!ids.size) fail("Select at least one message.");
+    const all = (await rd(k)) || []; const gone = all.filter(x => ids.has(x.id));
+    await wr(k, all.filter(x => !ids.has(x.id)));
+    if (gone.length) await wr("deleted:" + k, gone);
+    return { count: gone.length };
+  },
+  async notifundo(b, req) {
+    const u = await authUser(req); const kind = b.kind === "sent" ? "sent" : "notif";
+    const k = kind === "sent" ? "sent:" + u.id : "notif:" + notifKey(u);
+    const bak = await rd("deleted:" + k); if (!bak) fail("Nothing to restore.", 404);
+    const cur = (await rd(k)) || []; const have = new Set(cur.map(x => x.id));
+    await wr(k, [...cur, ...bak.filter(x => !have.has(x.id))].sort((a, c) => c.time - a.time).slice(0, kind === "sent" ? 50 : 60));
+    await db().delete("deleted:" + k); return { ok: true };
   },
   async directory(b, req) {
     const me = await authUser(req);
