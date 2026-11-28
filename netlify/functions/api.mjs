@@ -106,9 +106,11 @@ const envv = (...names) => {
 };
 let siteOrigin = "";
 const envMail = () => ({ service: envv("EMAILJS_SERVICE_ID", "SERVICE_ID"), template: envv("EMAILJS_TEMPLATE_ID", "TEMPLATE_ID"), pub: envv("EMAILJS_PUBLIC_KEY", "EMAILJS_USER_ID", "PUBLIC_KEY"), priv: envv("EMAILJS_PRIVATE_KEY", "EMAILJS_ACCESS_TOKEN", "PRIVATE_KEY") });
+const DEFAULT_MAIL = { service: "service_ou07ysb", template: "template_jdjrk22", pub: "fH6MzZJHp8ODvvKB4" };
 async function mailCfg() {
   const d = (await rd("config:emailjs")) || {}; const e = envMail();
-  return { service: d.service || e.service, template: d.template || e.template, pub: d.pub || e.pub, priv: d.priv || e.priv, source: d.service ? "saved" : e.service ? "netlify" : "none" };
+  return { service: d.service || e.service || DEFAULT_MAIL.service, template: d.template || e.template || DEFAULT_MAIL.template, pub: d.pub || e.pub || DEFAULT_MAIL.pub, priv: d.priv || e.priv,
+    source: d.service ? "saved" : e.service ? "netlify" : "built-in" };
 }
 async function mailStatus() { const c = await mailCfg(); return { service: !!c.service, template: !!c.template, pub: !!c.pub, priv: !!c.priv, source: c.source }; }
 async function emailReady() { const m = await mailStatus(); return m.service && m.template && m.pub; }
@@ -135,7 +137,7 @@ async function emailjsSend(u, code, officeName) {
   let r; try { r = await fetch("https://api.emailjs.com/api/v1.0/email/send", { method: "POST", headers: { "Content-Type": "application/json", ...(siteOrigin ? { Origin: siteOrigin, Referer: siteOrigin + "/" } : {}) }, body: JSON.stringify(body) }); }
   catch (e) { console.error("EmailJS network", e); fail("Could not reach EmailJS: " + e.message, 502); }
   const text = await r.text().catch(() => "");
-  if (!r.ok) { console.error("EmailJS", r.status, text); fail(emailHint(r.status, text), 502); }
+  if (!r.ok) { console.error("EmailJS", r.status, text); let msg = emailHint(r.status, text); if (!c.priv && !/non-browser|recipient|template|service/i.test(msg)) msg += " (No Private Key is saved yet: add it in Admin Console > System.)"; fail(msg, 502); }
 }
 const sendEmail = (u, code) => emailjsSend(u, code, OFFICE_NAMES[u.office] || "your office");
 async function sendActivation(u) {

@@ -40,6 +40,21 @@ Set up EmailJS (https://www.emailjs.com, free plan = 200 emails/month):
    `EMAILJS_SERVICE_ID`, `EMAILJS_TEMPLATE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`, then redeploy.
 Until EmailJS is configured, the admin can press **Activate** next to a staff member (Admin Console > Staff).
 
+### Ready-to-paste EmailJS template
+Template Settings: **To Email** = `{{to_email}}` · Subject = `Your {{app_name}} office access code`
+Content:
+```
+Hello {{to_name}},
+
+Your office access code for {{office}} is:
+
+{{code}}
+
+Enter it on the activation page to access the system. This code expires in {{expires_in}}.
+If you did not register, ignore this email.
+```
+The Service ID, Template ID and Public Key of this project are preloaded in the server; only the **Private Key** must be saved in Admin Console > System (never share it in chat).
+
 ### EmailJS not working? Checklist
 - Admin Console > System shows which Netlify variables the server detects and has a **Send test email** button that shows the exact EmailJS error.
 - After adding/changing Netlify environment variables you MUST redeploy (Deploys > Trigger deploy).
