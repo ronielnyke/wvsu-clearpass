@@ -104,9 +104,14 @@ const envv = (...names) => {
   }
   return "";
 };
-const mailCfg = () => ({ service: envv("EMAILJS_SERVICE_ID", "SERVICE_ID"), template: envv("EMAILJS_TEMPLATE_ID", "TEMPLATE_ID"), pub: envv("EMAILJS_PUBLIC_KEY", "EMAILJS_USER_ID", "PUBLIC_KEY"), priv: envv("EMAILJS_PRIVATE_KEY", "EMAILJS_ACCESS_TOKEN", "PRIVATE_KEY") });
-const mailStatus = () => { const c = mailCfg(); return { service: !!c.service, template: !!c.template, pub: !!c.pub, priv: !!c.priv }; };
-const emailReady = () => { const m = mailStatus(); return m.service && m.template && m.pub; };
+let siteOrigin = "";
+const envMail = () => ({ service: envv("EMAILJS_SERVICE_ID", "SERVICE_ID"), template: envv("EMAILJS_TEMPLATE_ID", "TEMPLATE_ID"), pub: envv("EMAILJS_PUBLIC_KEY", "EMAILJS_USER_ID", "PUBLIC_KEY"), priv: envv("EMAILJS_PRIVATE_KEY", "EMAILJS_ACCESS_TOKEN", "PRIVATE_KEY") });
+async function mailCfg() {
+  const d = (await rd("config:emailjs")) || {}; const e = envMail();
+  return { service: d.service || e.service, template: d.template || e.template, pub: d.pub || e.pub, priv: d.priv || e.priv, source: d.service ? "saved" : e.service ? "netlify" : "none" };
+}
+async function mailStatus() { const c = await mailCfg(); return { service: !!c.service, template: !!c.template, pub: !!c.pub, priv: !!c.priv, source: c.source }; }
+async function emailReady() { const m = await mailStatus(); return m.service && m.template && m.pub; }
 const codeHash = async (code, id) => crypto.createHmac("sha256", await secret()).update(code + ":" + id).digest("hex");
 function emailHint(status, text) {
   const t = String(text || "").slice(0, 220);
@@ -119,15 +124,15 @@ function emailHint(status, text) {
   return "EmailJS error " + status + ": " + t;
 }
 async function emailjsSend(u, code, officeName) {
-  const c = mailCfg();
+  const c = await mailCfg();
   if (!(c.service && c.template && c.pub)) {
     const miss = [!c.service && "EMAILJS_SERVICE_ID", !c.template && "EMAILJS_TEMPLATE_ID", !c.pub && "EMAILJS_PUBLIC_KEY"].filter(Boolean);
-    fail("The email service is not set up. Missing in Netlify: " + miss.join(", ") + ". Add them under Environment variables, then redeploy.", 503);
+    fail("The email service is not set up. Missing: " + miss.join(", ") + ". Open Admin Console > System and save your EmailJS settings.", 503);
   }
   const params = { to_email: u.email, email: u.email, user_email: u.email, recipient: u.email, reply_to: u.email, to_name: u.name, name: u.name, user_name: u.name, code, otp: code, access_code: code, passcode: code, office: officeName, app_name: "WVSU ClearPass Student Clearance", expires_in: "15 minutes", subject: "Your access code: " + code, message: "Your " + officeName + " office access code is " + code + ". It expires in 15 minutes." };
   const body = { service_id: c.service, template_id: c.template, user_id: c.pub, template_params: params };
   if (c.priv) body.accessToken = c.priv;
-  let r; try { r = await fetch("https://api.emailjs.com/api/v1.0/email/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+  let r; try { r = await fetch("https://api.emailjs.com/api/v1.0/email/send", { method: "POST", headers: { "Content-Type": "application/json", ...(siteOrigin ? { Origin: siteOrigin, Referer: siteOrigin + "/" } : {}) }, body: JSON.stringify(body) }); }
   catch (e) { console.error("EmailJS network", e); fail("Could not reach EmailJS: " + e.message, 502); }
   const text = await r.text().catch(() => "");
   if (!r.ok) { console.error("EmailJS", r.status, text); fail(emailHint(r.status, text), 502); }
@@ -144,7 +149,7 @@ async function sendActivation(u) {
 /* ---------- clean start (keeps only the administrator account) ---------- */
 const RESET_TAG = "clean-start-1"; let resetChecked = false;
 async function wipeData() {
-  const keep = new Set(["user:admin", "idno:admin", "email:" + adminEmail(), "config:secret", "config:reset"]);
+  const keep = new Set(["user:admin", "idno:admin", "email:" + adminEmail(), "config:secret", "config:reset", "config:emailjs"]);
   const { blobs } = await db().list(); await Promise.all(blobs.filter(x => !keep.has(x.key)).map(x => db().delete(x.key)));
   Object.keys(touched).forEach(k => delete touched[k]);
 }
@@ -352,7 +357,8 @@ const handlers = {
     const hb = await db().list({ prefix: "hist:" }); let activity = [];
     await Promise.all(hb.blobs.map(async x => { const sid = x.key.slice(5); const h = (await rd(x.key)) || []; h.slice(0, 40).forEach(e => activity.push({ ...e, student: names[sid] || "Unknown" })); }));
     activity.sort((a, c) => c.date - a.date);
-    return { now: Date.now(), emailReady: emailReady(), mail: mailStatus(), students: students.sort((a, c) => a.name.localeCompare(c.name)), staff: staff.sort((a, c) => a.name.localeCompare(c.name)), activity: activity.slice(0, 150) };
+    const mc = await mailCfg();
+    return { now: Date.now(), emailReady: await emailReady(), mail: await mailStatus(), mailVals: { service: mc.service, template: mc.template, pub: mc.pub }, students: students.sort((a, c) => a.name.localeCompare(c.name)), staff: staff.sort((a, c) => a.name.localeCompare(c.name)), activity: activity.slice(0, 150) };
   },
 
 
@@ -377,6 +383,14 @@ const handlers = {
   async adminactivate(b, req) {
     await authUser(req, "admin"); const u = await rd("user:" + str(b.id, 80)); if (!u || u.role !== "office") fail("Staff account not found.", 404);
     u.activated = true; u.activatedAt = Date.now(); await wr("user:" + u.id, u); await db().delete("act:" + u.id); return { ok: true };
+  },
+  async adminmailsave(b, req) {
+    await authUser(req, "admin");
+    if (b.clear) { await db().delete("config:emailjs"); return { ok: true }; }
+    const old = (await rd("config:emailjs")) || {}; const clean = v => str(v, 300).replace(/^["']+|["']+$/g, "").trim();
+    const cfg = { service: clean(b.service), template: clean(b.template), pub: clean(b.pub), priv: clean(b.priv) || old.priv || "" };
+    if (!cfg.service || !cfg.template || !cfg.pub) fail("Service ID, Template ID and Public Key are required.");
+    await wr("config:emailjs", cfg); return { ok: true };
   },
   async adminemailtest(b, req) {
     const u = await authUser(req, "admin"); const to = str(b.to, 120).toLowerCase();
@@ -414,6 +428,7 @@ const handlers = {
 
 export default async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  try { siteOrigin = new URL(req.url).origin; } catch (e) { siteOrigin = ""; }
   const action = new URL(req.url).pathname.replace(/^\/api\//, "").replace(/\/$/, "");
   const h = Object.prototype.hasOwnProperty.call(handlers, action) ? handlers[action] : null;
   if (!h) return json({ error: "Not found" }, 404);
