@@ -96,17 +96,43 @@ async function touch(id) { const now = Date.now(); if (now - (touched[id] || 0) 
 /* ---------- staff activation code sent by EmailJS ---------- */
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const genCode = () => Array.from(crypto.randomBytes(8), x => CODE_CHARS[x % CODE_CHARS.length]).join("");
-const emailReady = () => !!(process.env.EMAILJS_SERVICE_ID && process.env.EMAILJS_TEMPLATE_ID && process.env.EMAILJS_PUBLIC_KEY);
+const envv = (...names) => {
+  for (const n of names) {
+    let v = process.env[n];
+    if (!v && typeof Netlify !== "undefined" && Netlify.env) { try { v = Netlify.env.get(n); } catch (e) { /* ignore */ } }
+    if (v) return String(v).trim().replace(/^["']+|["']+$/g, "").trim();
+  }
+  return "";
+};
+const mailCfg = () => ({ service: envv("EMAILJS_SERVICE_ID", "SERVICE_ID"), template: envv("EMAILJS_TEMPLATE_ID", "TEMPLATE_ID"), pub: envv("EMAILJS_PUBLIC_KEY", "EMAILJS_USER_ID", "PUBLIC_KEY"), priv: envv("EMAILJS_PRIVATE_KEY", "EMAILJS_ACCESS_TOKEN", "PRIVATE_KEY") });
+const mailStatus = () => { const c = mailCfg(); return { service: !!c.service, template: !!c.template, pub: !!c.pub, priv: !!c.priv }; };
+const emailReady = () => { const m = mailStatus(); return m.service && m.template && m.pub; };
 const codeHash = async (code, id) => crypto.createHmac("sha256", await secret()).update(code + ":" + id).digest("hex");
-async function sendEmail(u, code) {
-  if (!emailReady()) fail("The email service is not set up yet. Please contact the administrator.", 503);
-  const body = { service_id: process.env.EMAILJS_SERVICE_ID, template_id: process.env.EMAILJS_TEMPLATE_ID, user_id: process.env.EMAILJS_PUBLIC_KEY,
-    template_params: { to_email: u.email, to_name: u.name, code, office: OFFICE_NAMES[u.office] || "", app_name: "WVSU ClearPass Student Clearance", expires_in: "15 minutes" } };
-  if (process.env.EMAILJS_PRIVATE_KEY) body.accessToken = process.env.EMAILJS_PRIVATE_KEY;
-  let r; try { r = await fetch("https://api.emailjs.com/api/v1.0/email/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
-  catch (e) { console.error("EmailJS network", e); fail("Could not reach the email service. Please try again.", 502); }
-  if (!r.ok) { const t = await r.text().catch(() => ""); console.error("EmailJS", r.status, t); fail("Could not send the email (" + r.status + "). Please try again or contact the administrator.", 502); }
+function emailHint(status, text) {
+  const t = String(text || "").slice(0, 220);
+  if (/non-browser|API calls are disabled/i.test(t)) return 'EmailJS blocked the request. In EmailJS go to Account > Security and turn ON "Allow EmailJS API for non-browser applications".';
+  if (/recipients? address is empty|to_email|recipient/i.test(t)) return 'The EmailJS template has no recipient. Open the template > Settings and set "To Email" to {{to_email}}.';
+  if (/template.*not found|service.*not found|Account not found|The (service|template) ID/i.test(t)) return "EmailJS could not find your Service ID or Template ID. Re-copy them from the EmailJS dashboard. (" + t + ")";
+  if (status === 401 || status === 403 || /public key|private key|accessToken|user_id|origin/i.test(t)) return "EmailJS rejected the keys. Check the Public Key and Private Key (Account > General / Security). (" + t + ")";
+  if (status === 412 || /Gmail_API|authentication|insufficient/i.test(t)) return "The connected email account in EmailJS needs to be reconnected (Email Services > reconnect). (" + t + ")";
+  if (status === 429) return "EmailJS monthly limit reached. Try again later or upgrade the plan.";
+  return "EmailJS error " + status + ": " + t;
 }
+async function emailjsSend(u, code, officeName) {
+  const c = mailCfg();
+  if (!(c.service && c.template && c.pub)) {
+    const miss = [!c.service && "EMAILJS_SERVICE_ID", !c.template && "EMAILJS_TEMPLATE_ID", !c.pub && "EMAILJS_PUBLIC_KEY"].filter(Boolean);
+    fail("The email service is not set up. Missing in Netlify: " + miss.join(", ") + ". Add them under Environment variables, then redeploy.", 503);
+  }
+  const params = { to_email: u.email, email: u.email, user_email: u.email, recipient: u.email, reply_to: u.email, to_name: u.name, name: u.name, user_name: u.name, code, otp: code, access_code: code, passcode: code, office: officeName, app_name: "WVSU ClearPass Student Clearance", expires_in: "15 minutes", subject: "Your access code: " + code, message: "Your " + officeName + " office access code is " + code + ". It expires in 15 minutes." };
+  const body = { service_id: c.service, template_id: c.template, user_id: c.pub, template_params: params };
+  if (c.priv) body.accessToken = c.priv;
+  let r; try { r = await fetch("https://api.emailjs.com/api/v1.0/email/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+  catch (e) { console.error("EmailJS network", e); fail("Could not reach EmailJS: " + e.message, 502); }
+  const text = await r.text().catch(() => "");
+  if (!r.ok) { console.error("EmailJS", r.status, text); fail(emailHint(r.status, text), 502); }
+}
+const sendEmail = (u, code) => emailjsSend(u, code, OFFICE_NAMES[u.office] || "your office");
 async function sendActivation(u) {
   const prev = await rd("act:" + u.id);
   if (prev && Date.now() - prev.sentAt < 60000) return { sent: false, wait: Math.ceil((60000 - (Date.now() - prev.sentAt)) / 1000) };
@@ -326,7 +352,7 @@ const handlers = {
     const hb = await db().list({ prefix: "hist:" }); let activity = [];
     await Promise.all(hb.blobs.map(async x => { const sid = x.key.slice(5); const h = (await rd(x.key)) || []; h.slice(0, 40).forEach(e => activity.push({ ...e, student: names[sid] || "Unknown" })); }));
     activity.sort((a, c) => c.date - a.date);
-    return { now: Date.now(), emailReady: emailReady(), students: students.sort((a, c) => a.name.localeCompare(c.name)), staff: staff.sort((a, c) => a.name.localeCompare(c.name)), activity: activity.slice(0, 150) };
+    return { now: Date.now(), emailReady: emailReady(), mail: mailStatus(), students: students.sort((a, c) => a.name.localeCompare(c.name)), staff: staff.sort((a, c) => a.name.localeCompare(c.name)), activity: activity.slice(0, 150) };
   },
 
 
@@ -351,6 +377,11 @@ const handlers = {
   async adminactivate(b, req) {
     await authUser(req, "admin"); const u = await rd("user:" + str(b.id, 80)); if (!u || u.role !== "office") fail("Staff account not found.", 404);
     u.activated = true; u.activatedAt = Date.now(); await wr("user:" + u.id, u); await db().delete("act:" + u.id); return { ok: true };
+  },
+  async adminemailtest(b, req) {
+    const u = await authUser(req, "admin"); const to = str(b.to, 120).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) fail("Enter a valid email address.");
+    await emailjsSend({ email: to, name: "Test", office: "Test" }, "TEST-1234", "Test"); return { ok: true, to };
   },
   async adminwipe(b, req) { await authUser(req, "admin"); if (b.confirm !== "DELETE") fail("Type DELETE to confirm."); await wipeData(); return { ok: true }; },
   async admindelete(b, req) {

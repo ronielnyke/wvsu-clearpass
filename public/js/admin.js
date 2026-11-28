@@ -2,7 +2,7 @@
 (function () {
   const me = Auth.require('admin'); if (!me) return;
   const view = UI.shell(me, 'admin', 'Admin Console'); UI.loading(view);
-  let tab = 'overview', q = '', pf = 'all', data = { now: Date.now(), emailReady: false, students: [], staff: [], activity: [] }, live;
+  let tab = 'overview', q = '', pf = 'all', testTo = '', testMsg = null, data = { now: Date.now(), emailReady: false, students: [], staff: [], activity: [] }, live;
   const icon = { submit: '⬆️', approve: '✅', reject: '⚠️', complete: '🎓', reset: '🔄' };
   const pill = (k, t) => `<span class="badge b-${k}">${t}</span>`;
   const isOn = x => x.lastSeen > 0 && data.now - x.lastSeen < 45000;
@@ -45,19 +45,33 @@
   }
   function activity() { return `<div class="card"><h3>System Activity (latest ${data.activity.length})</h3>${data.activity.length ? data.activity.map(act).join('') : '<div class="empty-st"><div class="em">🕘</div>No activity yet.</div>'}</div>`; }
   function system() {
-    return `<div class="card" style="margin-bottom:22px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center"><h3 style="margin:0">📧 Email service (EmailJS)</h3>${data.emailReady ? pill('approved', 'Ready') : pill('rejected', 'Not configured')}</div>
-    <p style="color:var(--muted);font-size:.9rem;margin:10px 0">Office staff receive their one-time activation code by email. ${data.emailReady ? 'The service is connected.' : 'Add these Netlify environment variables, then redeploy:'}</p>
-    ${data.emailReady ? '' : '<ol class="steps-box"><li><code>EMAILJS_SERVICE_ID</code></li><li><code>EMAILJS_TEMPLATE_ID</code></li><li><code>EMAILJS_PUBLIC_KEY</code></li><li><code>EMAILJS_PRIVATE_KEY</code></li></ol><p style="color:var(--muted);font-size:.82rem;margin-top:8px">Until then, use the <b>Activate</b> button in the Staff tab.</p>'}</div>
+    const m = data.mail || {}, ok = x => x ? '✅' : '❌';
+    return `<div class="card" style="margin-bottom:22px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center"><h3 style="margin:0">📧 Email service (EmailJS)</h3>${data.emailReady ? pill('approved', 'Variables found') : pill('rejected', 'Not configured')}</div>
+    <p style="color:var(--muted);font-size:.9rem;margin:10px 0">Office staff receive their one-time activation code by email. Variables detected by the server:</p>
+    <ul class="steps-box" style="list-style:none;margin:0 0 12px"><li>${ok(m.service)} <code>EMAILJS_SERVICE_ID</code></li><li>${ok(m.template)} <code>EMAILJS_TEMPLATE_ID</code></li><li>${ok(m.pub)} <code>EMAILJS_PUBLIC_KEY</code></li><li>${ok(m.priv)} <code>EMAILJS_PRIVATE_KEY</code> <small style="color:var(--muted)">(needed for server sending)</small></li></ul>
+    <div class="field" style="margin-bottom:10px"><label for="tm">Send a test email</label><div class="input"><input id="tm" type="email" placeholder="your-real-email@gmail.com" value="${esc(testTo)}" style="padding-left:14px"></div></div>
+    <button class="btn sm" id="testmail">📨 Send test email</button>
+    ${testMsg ? `<div class="info ${testMsg.ok ? 'ok' : 'bad'}" style="margin-top:12px">${esc(testMsg.text)}</div>` : ''}
+    <p style="color:var(--muted);font-size:.8rem;margin-top:12px">If it fails: (1) after adding variables in Netlify you must <b>redeploy</b>; (2) EmailJS &gt; Account &gt; Security: allow non-browser applications; (3) template <b>To Email</b> = <code>{{to_email}}</code>; (4) check the spam folder.</p></div>
     <div class="card danger-zone"><h3 style="color:var(--red)">⚠️ Danger zone</h3><p style="color:var(--muted);font-size:.9rem;margin-bottom:14px">Delete <b>all</b> registered students and staff, submissions, files, messages and history. Only the administrator account is kept. This cannot be undone.</p><button class="btn danger" id="wipe">🗑 Delete all data</button></div>`;
   }
   function render(d) {
     if (d) data = d;
+    const ae = document.activeElement, keep = ae && view.contains(ae) && (ae.id === 'q' || ae.id === 'tm') ? { id: ae.id, pos: ae.selectionStart } : null;
     const tabs = [['overview', '📊 Overview'], ['students', '🎓 Students'], ['staff', '🏢 Staff'], ['activity', '🕘 Activity'], ['system', '⚙️ System']];
     view.innerHTML = `<div class="hello"><div><h2>🛡️ Administrator Console</h2><p>Monitor students, offices, who is online, submissions and system activity. Updates automatically.</p></div><button class="btn light" id="bc">📣 Send announcement</button></div>
     <div class="chips">${tabs.map(t => `<button data-t="${t[0]}" class="${tab === t[0] ? 'on' : ''}">${t[1]}</button>`).join('')}</div>
     ${tab === 'overview' ? overview() : tab === 'students' ? students() : tab === 'staff' ? staff() : tab === 'activity' ? activity() : system()}`;
     $('#bc', view).onclick = () => UI.compose({ to: 'group:everyone' });
     const w = $('#wipe', view); if (w) w.onclick = wipeDialog;
+    const tm = $('#tm', view); if (tm) tm.addEventListener('input', () => { testTo = tm.value; });
+    const tb = $('#testmail', view); if (tb) tb.onclick = async () => {
+      const to = ($('#tm', view).value || '').trim(); testTo = to; tb.disabled = true; tb.textContent = 'Sending…';
+      try { await API.call('adminemailtest', { to }); testMsg = { ok: true, text: 'Test email sent to ' + to + '. Check the inbox (and spam folder).' }; }
+      catch (e) { testMsg = { ok: false, text: e.message }; }
+      render();
+    };
+    if (keep) { const el = $('#' + keep.id, view); if (el) { el.focus(); try { el.setSelectionRange(keep.pos, keep.pos); } catch (e) { /* ignore */ } } }
     const qi = $('#q', view);
     if (qi) qi.addEventListener('input', () => { q = qi.value; const pos = qi.selectionStart; render(); const n = $('#q', view); n.focus(); n.setSelectionRange(pos, pos); });
   }

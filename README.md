@@ -40,6 +40,13 @@ Set up EmailJS (https://www.emailjs.com, free plan = 200 emails/month):
    `EMAILJS_SERVICE_ID`, `EMAILJS_TEMPLATE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`, then redeploy.
 Until EmailJS is configured, the admin can press **Activate** next to a staff member (Admin Console > Staff).
 
+### EmailJS not working? Checklist
+- Admin Console > System shows which Netlify variables the server detects and has a **Send test email** button that shows the exact EmailJS error.
+- After adding/changing Netlify environment variables you MUST redeploy (Deploys > Trigger deploy).
+- EmailJS > Account > Security > turn ON "Allow EmailJS API for non-browser applications".
+- EmailJS template > Settings > **To Email** = `{{to_email}}`.
+- Check the spam folder.
+
 ## Clean start
 On the first request after this version is deployed, ALL existing registered users, submissions, files, messages and
 history are deleted once. Only the administrator account is kept. (Admin Console > System also has a "Delete all data" button.)
