@@ -1,123 +1,15 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <link rel="icon" href="assets/logo.png" />
-    <link rel="manifest" href="manifest.webmanifest" />
-    <meta name="theme-color" content="#1b56c9" />
-    <link rel="apple-touch-icon" href="assets/icon-192.png" />
-    <link rel="stylesheet" href="css/style.css" />
-    <title>Login | Student Clearance System</title>
-  </head>
-  <body>
-    <div class="auth">
-      <div class="auth-brand">
-        <div class="orbs"><span></span><span></span><span></span></div>
-        <div class="orbit" style="--s: 210px">
-          <i class="r1"></i><i class="r2"></i><i class="sp"></i
-          ><img
-            class="logo"
-            src="assets/logo.png"
-            alt="Student Clearance logo"
-          />
-        </div>
-        <h1>Student Clearance<br />Tracking &amp; Management</h1>
-        <p>
-          One organized platform for requirements, approvals and clearance
-          records at WVSU–Lambunao Campus.
-        </p>
-        <div class="pills">
-          <span>📄 Submit</span><span>🧭 Track</span><span>✅ Approve</span
-          ><span>🕘 History</span>
-        </div>
-      </div>
-      <div class="auth-form">
-        <div class="orbs"><span></span><span></span><span></span></div>
-        <div class="auth-box">
-          <div class="auth-mobile-logo">
-            <div class="orbit" style="--s: 108px">
-              <i class="r1"></i><i class="r2"></i><i class="sp"></i
-              ><img
-                class="logo"
-                src="assets/logo.png"
-                alt="Student Clearance logo"
-              />
-            </div>
-          </div>
-          <h2>Welcome back 👋</h2>
-          <p class="sub">Log in to continue to your clearance account.</p>
-          <div class="alert err" id="alert" role="alert"></div>
-          <form id="form" novalidate>
-            <div class="field">
-              <label for="ident">Email or ID Number</label>
-              <div class="input">
-                <svg
-                  class="ic"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <rect x="2" y="4" width="20" height="16" rx="3" />
-                  <path d="m22 7-10 6L2 7" /></svg
-                ><input
-                  id="ident"
-                  type="text"
-                  autocomplete="username"
-                  placeholder="Email or ID number"
-                  required
-                />
-              </div>
-            </div>
-            <div class="field">
-              <label for="pw">Password</label>
-              <div class="input has-eye">
-                <svg
-                  class="ic"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <rect x="4" y="11" width="16" height="10" rx="3" />
-                  <path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg
-                ><input
-                  id="pw"
-                  type="password"
-                  autocomplete="current-password"
-                  placeholder="Enter your password"
-                  required
-                /><button type="button" class="eye" data-for="pw"></button>
-              </div>
-            </div>
-            <div
-              class="field"
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-              "
-            >
-              <label class="check" style="margin: 0"
-                ><input type="checkbox" id="remember" /> Remember me</label
-              >
-            </div>
-            <button class="btn block" type="submit" id="go">Log in</button>
-          </form>
-          <p class="switch">
-            New here? <a href="register.html">Create an account</a> ·
-            <a href="index.html">Home</a>
-          </p>
-        </div>
-        <footer class="footer">
-          <div class="g6">Group 6</div>
-          <div class="line"></div>
-          <div>CIT 206 – Platform Technology · WVSU–Lambunao Campus</div>
-        </footer>
-      </div>
-    </div>
-    <script src="js/app.js"></script>
-    <script src="js/login.js"></script>
-  </body>
-</html>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="assets/logo.png"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#1b56c9"><link rel="apple-touch-icon" href="assets/icon-192.png"><link rel="stylesheet" href="css/style.css"><title>Login | Student Clearance System</title></head>
+<body><div class="auth"><div class="auth-brand"><div class="orbs"><span></span><span></span><span></span></div><div class="orbit" style="--s:210px"><i class="r1"></i><i class="r2"></i><i class="sp"></i><img class="logo" src="assets/logo.png" alt="Student Clearance logo"></div><h1>Student Clearance<br>Tracking &amp; Management</h1><p>One organized platform for requirements, approvals and clearance records at WVSU–Lambunao Campus.</p><div class="pills"><span>📄 Submit</span><span>🧭 Track</span><span>✅ Approve</span><span>🕘 History</span></div></div>
+<div class="auth-form"><div class="orbs"><span></span><span></span><span></span></div>
+<div class="auth-box"><div class="auth-mobile-logo"><div class="orbit" style="--s:108px"><i class="r1"></i><i class="r2"></i><i class="sp"></i><img class="logo" src="assets/logo.png" alt="Student Clearance logo"></div></div>
+<h2>Welcome back 👋</h2><p class="sub">Log in to continue to your clearance account.</p>
+<div class="alert err" id="alert" role="alert"></div>
+<form id="form" novalidate>
+<div class="field"><label for="ident">Email or ID Number</label><div class="input"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m22 7-10 6L2 7"/></svg><input id="ident" type="text" autocomplete="username" placeholder="Email or ID number" required></div></div>
+<div class="field"><label for="pw">Password</label><div class="input has-eye"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="3"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><input id="pw" type="password" autocomplete="current-password" placeholder="Enter your password" required><button type="button" class="eye" data-for="pw"></button></div></div>
+<div class="field" style="display:flex;justify-content:space-between;align-items:center"><label class="check" style="margin:0"><input type="checkbox" id="remember"> Remember me</label></div>
+<button class="btn block" type="submit" id="go">Log in</button></form>
+<p class="switch">New here? <a href="register.html">Create an account</a> · <a href="index.html">Home</a></p>
+
+</div><footer class="footer"><div class="g6">Group 6</div><div class="line"></div><div>CIT 206 – Platform Technology · WVSU–Lambunao Campus</div></footer></div></div>
+<script src="js/app.js"></script><script src="js/login.js"></script></body></html>

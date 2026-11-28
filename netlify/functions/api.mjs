@@ -23,7 +23,7 @@ const wr = (k, v) => db().setJSON(k, v);
 const json = (d, status = 200) => new Response(JSON.stringify(d), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 const fail = (msg, status = 400) => { const e = new Error(msg); e.status = status; throw e; };
 const cycleOf = u => CYCLES[Math.min(u.cycleIdx || 0, CYCLES.length - 1)];
-const pub = u => ({ id: u.id, name: u.name, idNo: u.idNo, email: u.email, role: u.role, course: u.course, year: u.year, office: u.office, cycleIdx: u.cycleIdx || 0 });
+const pub = u => ({ id: u.id, name: u.name, idNo: u.idNo, email: u.email, role: u.role, course: u.course, year: u.year, office: u.office, cycleIdx: u.cycleIdx || 0, activated: u.role === "office" ? !!u.activated : true });
 const str = (v, max = 120) => String(v == null ? "" : v).trim().slice(0, max);
 
 /* ---------- security helpers ---------- */
@@ -41,7 +41,7 @@ async function makeToken(id) {
   const sig = crypto.createHmac("sha256", await secret()).update(p).digest("base64url");
   return p + "." + sig;
 }
-async function authUser(req, role) {
+async function authUser(req, role, allowInactive) {
   const h = req.headers.get("authorization") || ""; const t = h.startsWith("Bearer ") ? h.slice(7) : "";
   const [p, sig] = t.split(".");
   if (!p || !sig) fail("Please log in.", 401);
@@ -53,6 +53,8 @@ async function authUser(req, role) {
   const u = await rd("user:" + data.id);
   if (!u) fail("Account not found.", 401);
   if (role && u.role !== role) fail("You are not allowed to do this.", 403);
+  if (u.role === "office" && !u.activated && !allowInactive) fail("Please activate your account with the office access code.", 403);
+  await touch(u.id);
   return u;
 }
 
@@ -87,13 +89,43 @@ async function ensureAdmin() {
   return u;
 }
 
-/* ---------- office access code (managed by the administrator) ---------- */
-const newCode = () => "WVSU-" + crypto.randomBytes(3).toString("hex").toUpperCase();
-async function getStaffCode() {
-  const c = await rd("config:staffcode");
-  if (c && c.v) return c.v;
-  const v = String(process.env.STAFF_CODE || "").trim() || newCode();
-  await wr("config:staffcode", { v }); return v;
+/* ---------- presence (online / offline) ---------- */
+const touched = {};
+async function touch(id) { const now = Date.now(); if (now - (touched[id] || 0) < 20000) return; touched[id] = now; try { await wr("seen:" + id, { t: now }); } catch (e) { /* ignore */ } }
+
+/* ---------- staff activation code sent by EmailJS ---------- */
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const genCode = () => Array.from(crypto.randomBytes(8), x => CODE_CHARS[x % CODE_CHARS.length]).join("");
+const emailReady = () => !!(process.env.EMAILJS_SERVICE_ID && process.env.EMAILJS_TEMPLATE_ID && process.env.EMAILJS_PUBLIC_KEY);
+const codeHash = async (code, id) => crypto.createHmac("sha256", await secret()).update(code + ":" + id).digest("hex");
+async function sendEmail(u, code) {
+  if (!emailReady()) fail("The email service is not set up yet. Please contact the administrator.", 503);
+  const body = { service_id: process.env.EMAILJS_SERVICE_ID, template_id: process.env.EMAILJS_TEMPLATE_ID, user_id: process.env.EMAILJS_PUBLIC_KEY,
+    template_params: { to_email: u.email, to_name: u.name, code, office: OFFICE_NAMES[u.office] || "", app_name: "WVSU ClearPass Student Clearance", expires_in: "15 minutes" } };
+  if (process.env.EMAILJS_PRIVATE_KEY) body.accessToken = process.env.EMAILJS_PRIVATE_KEY;
+  let r; try { r = await fetch("https://api.emailjs.com/api/v1.0/email/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+  catch (e) { console.error("EmailJS network", e); fail("Could not reach the email service. Please try again.", 502); }
+  if (!r.ok) { const t = await r.text().catch(() => ""); console.error("EmailJS", r.status, t); fail("Could not send the email (" + r.status + "). Please try again or contact the administrator.", 502); }
+}
+async function sendActivation(u) {
+  const prev = await rd("act:" + u.id);
+  if (prev && Date.now() - prev.sentAt < 60000) return { sent: false, wait: Math.ceil((60000 - (Date.now() - prev.sentAt)) / 1000) };
+  const code = genCode(); await sendEmail(u, code.slice(0, 4) + "-" + code.slice(4));
+  await wr("act:" + u.id, { hash: await codeHash(code, u.id), exp: Date.now() + 15 * 60000, sentAt: Date.now(), tries: 0 });
+  return { sent: true };
+}
+
+/* ---------- clean start (keeps only the administrator account) ---------- */
+const RESET_TAG = "clean-start-1"; let resetChecked = false;
+async function wipeData() {
+  const keep = new Set(["user:admin", "idno:admin", "email:" + adminEmail(), "config:secret", "config:reset"]);
+  const { blobs } = await db().list(); await Promise.all(blobs.filter(x => !keep.has(x.key)).map(x => db().delete(x.key)));
+  Object.keys(touched).forEach(k => delete touched[k]);
+}
+async function ensureReset() {
+  if (resetChecked) return; const c = await rd("config:reset");
+  if (!c || c.v !== RESET_TAG) { await ensureAdmin(); await wipeData(); await wr("config:reset", { v: RESET_TAG, at: Date.now() }); }
+  resetChecked = true;
 }
 
 /* ---------- handlers ---------- */
@@ -109,9 +141,7 @@ const handlers = {
     const user = { id: crypto.randomUUID(), name, idNo, email, role, pass: hashPw(pw), createdAt: Date.now() };
     if (role === "office") {
       if (!OFFICES.includes(b.office)) fail("Please choose your office.");
-      const code = await getStaffCode();
-      if (String(b.code || "").trim().toLowerCase() !== code.toLowerCase()) fail("Invalid office access code. Ask your administrator.", 403);
-      user.office = b.office;
+      user.office = b.office; user.activated = false;
     } else { user.course = str(b.course, 80); user.year = str(b.year, 20); user.cycleIdx = 0; }
     if (await rd("email:" + email)) fail("This email is already registered.", 409);
     if (await rd("idno:" + idNo.toLowerCase())) fail("This ID number is already registered.", 409);
@@ -127,8 +157,14 @@ const handlers = {
     const ref = (await rd("email:" + ident)) || (await rd("idno:" + ident));
     const u = ref && (await rd("user:" + ref.id));
     if (!u || !checkPw(pw, u.pass)) fail("Incorrect email/ID or password.", 401);
-    const unread = ((await rd("notif:" + notifKey(u))) || []).filter(x => !x.read);
-    return { token: await makeToken(u.id), user: pub(u), unread: { count: unread.length, important: unread.some(x => x.important), items: unread.slice(0, 3).map(x => ({ text: x.text, important: !!x.important, from: x.from ? x.from.name : null })) } };
+    let activation = null;
+    if (u.role === "office" && !u.activated) {
+      try { const r = await sendActivation(u); activation = { sent: r.sent, wait: r.wait || 0, at: Date.now() }; }
+      catch (e) { activation = { sent: false, error: e.message, at: Date.now() }; }
+    }
+    await touch(u.id);
+    const unread = u.role === "office" && !u.activated ? [] : ((await rd("notif:" + notifKey(u))) || []).filter(x => !x.read);
+    return { token: await makeToken(u.id), user: pub(u), activation, unread: { count: unread.length, important: unread.some(x => x.important), items: unread.slice(0, 3).map(x => ({ text: x.text, important: !!x.important, from: x.from ? x.from.name : null })) } };
   },
   async state(b, req) {
     const u = await authUser(req, "student");
@@ -279,29 +315,50 @@ const handlers = {
     await authUser(req, "admin");
     const { blobs } = await db().list({ prefix: "user:" });
     const users = (await Promise.all(blobs.map(x => rd(x.key)))).filter(Boolean);
+    const sb = await db().list({ prefix: "seen:" }); const seen = {};
+    await Promise.all(sb.blobs.map(async x => { const v = await rd(x.key); if (v) seen[x.key.slice(5)] = v.t || 0; }));
     const students = [], staff = [];
     await Promise.all(users.map(async u => {
-      if (u.role === "student") { const stu = (await rd("stu:" + u.id)) || { subs: {} }; students.push({ ...pub(u), createdAt: u.createdAt, subs: stu.subs }); }
-      else if (u.role === "office") staff.push({ ...pub(u), createdAt: u.createdAt });
+      if (u.role === "student") { const stu = (await rd("stu:" + u.id)) || { subs: {} }; students.push({ ...pub(u), createdAt: u.createdAt, lastSeen: seen[u.id] || 0, subs: stu.subs }); }
+      else if (u.role === "office") staff.push({ ...pub(u), createdAt: u.createdAt, lastSeen: seen[u.id] || 0 });
     }));
     const names = Object.fromEntries(students.map(x => [x.id, x.name]));
     const hb = await db().list({ prefix: "hist:" }); let activity = [];
     await Promise.all(hb.blobs.map(async x => { const sid = x.key.slice(5); const h = (await rd(x.key)) || []; h.slice(0, 40).forEach(e => activity.push({ ...e, student: names[sid] || "Unknown" })); }));
     activity.sort((a, c) => c.date - a.date);
-    return { staffCode: await getStaffCode(), students: students.sort((a, c) => a.name.localeCompare(c.name)), staff: staff.sort((a, c) => a.name.localeCompare(c.name)), activity: activity.slice(0, 150) };
+    return { now: Date.now(), emailReady: emailReady(), students: students.sort((a, c) => a.name.localeCompare(c.name)), staff: staff.sort((a, c) => a.name.localeCompare(c.name)), activity: activity.slice(0, 150) };
   },
-  async adminsetcode(b, req) {
-    await authUser(req, "admin");
-    const v = String(b.code || "").trim() || newCode();
-    if (v.length < 6 || v.length > 40 || /\s/.test(v)) fail("Access code must be 6–40 characters with no spaces.");
-    await wr("config:staffcode", { v }); return { code: v };
+
+
+  async activate(b, req) {
+    const u = await authUser(req, "office", true); if (u.activated) return { user: pub(u) };
+    const a = await rd("act:" + u.id);
+    if (!a) fail('No active code. Tap "Resend code" to get a new one.');
+    if (Date.now() > a.exp) fail('This code has expired. Tap "Resend code" to get a new one.');
+    if (a.tries >= 5) fail('Too many wrong attempts. Tap "Resend code" to get a new one.', 429);
+    const code = String(b.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const ok = code.length === 8 && crypto.timingSafeEqual(Buffer.from(await codeHash(code, u.id)), Buffer.from(a.hash));
+    if (!ok) { a.tries++; await wr("act:" + u.id, a); fail("Incorrect code. " + (5 - a.tries) + " attempt(s) left.", 400); }
+    u.activated = true; u.activatedAt = Date.now(); await wr("user:" + u.id, u); await db().delete("act:" + u.id);
+    await notify("admin", `${u.name} (${OFFICE_NAMES[u.office]}) activated their staff account.`);
+    return { user: pub(u) };
   },
+  async resendcode(b, req) {
+    const u = await authUser(req, "office", true); if (u.activated) fail("Your account is already activated.");
+    const r = await sendActivation(u); if (!r.sent) fail("Please wait " + r.wait + " seconds before requesting another code.", 429); return { ok: true };
+  },
+  async logout(b, req) { const u = await authUser(req, null, true); await wr("seen:" + u.id, { t: 0 }); touched[u.id] = Date.now(); return { ok: true }; },
+  async adminactivate(b, req) {
+    await authUser(req, "admin"); const u = await rd("user:" + str(b.id, 80)); if (!u || u.role !== "office") fail("Staff account not found.", 404);
+    u.activated = true; u.activatedAt = Date.now(); await wr("user:" + u.id, u); await db().delete("act:" + u.id); return { ok: true };
+  },
+  async adminwipe(b, req) { await authUser(req, "admin"); if (b.confirm !== "DELETE") fail("Type DELETE to confirm."); await wipeData(); return { ok: true }; },
   async admindelete(b, req) {
     await authUser(req, "admin"); const id = str(b.id, 80);
     if (id === "admin") fail("The administrator account cannot be deleted.", 403);
     const u = await rd("user:" + id); if (!u) fail("User not found.", 404);
     const d = db();
-    await Promise.all([d.delete("user:" + id), d.delete("email:" + u.email), d.delete("idno:" + String(u.idNo).toLowerCase()), d.delete("stu:" + id), d.delete("hist:" + id), d.delete("notif:" + id), d.delete("sent:" + id), ...REQS.map(r => d.delete("file:" + id + ":" + r.id))]);
+    await Promise.all([d.delete("user:" + id), d.delete("email:" + u.email), d.delete("idno:" + String(u.idNo).toLowerCase()), d.delete("stu:" + id), d.delete("hist:" + id), d.delete("notif:" + id), d.delete("sent:" + id), d.delete("seen:" + id), d.delete("act:" + id), ...REQS.map(r => d.delete("file:" + id + ":" + r.id))]);
     return { ok: true };
   },
   async adminreset(b, req) {
@@ -330,7 +387,7 @@ export default async (req) => {
   const h = Object.prototype.hasOwnProperty.call(handlers, action) ? handlers[action] : null;
   if (!h) return json({ error: "Not found" }, 404);
   let body = {}; try { body = await req.json(); } catch (e) { /* empty body */ }
-  try { return json(await h(body || {}, req)); }
+  try { await ensureReset(); return json(await h(body || {}, req)); }
   catch (e) { if (e.status) return json({ error: e.message }, e.status); console.error(e); return json({ error: "Server error. Please try again." }, 500); }
 };
 export const config = { path: "/api/*" };
